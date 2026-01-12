@@ -1,13 +1,12 @@
 package game;
 
-import javax.swing.*;
-import java.awt.*;
-import java.awt.event.*;
-
 import graphics.Camera;
 import graphics.ParticleSystem;
 import graphics.Renderer;
 import input.InputHandler;
+import java.awt.*;
+import java.awt.event.*;
+import javax.swing.*;
 import scoring.DriftScoring;
 import util.GameConstants;
 import world.CityWorld;
@@ -273,10 +272,17 @@ public class GameLoop extends JPanel implements Runnable {
             drawPauseOverlay(g);
         }
         
-        // Draw FPS (debug)
+        // Draw FPS and debug info
         g.setColor(Color.GREEN);
         g.setFont(new Font("Monospaced", Font.PLAIN, 12));
         g.drawString("FPS: " + fps, 10, GameConstants.WINDOW_HEIGHT - 10);
+        
+        // Debug: Show RPM info
+        int actualRpm = (int) car.getPhysics().getEngine().getRpm();
+        int gear = car.getPhysics().getEngine().getCurrentGear();
+        boolean revLimiter = car.getPhysics().getEngine().isRevLimiterActive();
+        String rpmText = "RPM: " + actualRpm + " | Gear: " + gear + (revLimiter ? " [REV LIMITER]" : "");
+        g.drawString(rpmText, 100, GameConstants.WINDOW_HEIGHT - 10);
     }
     
     /**

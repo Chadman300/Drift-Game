@@ -82,8 +82,8 @@ public class Tire {
         // Calculate forces using Pacejka-like tire model
         calculateForces();
         
-        // Update visual effects
-        updateEffects();
+        // Update visual effects - pass vehicle speed to check if car is moving
+        updateEffects(vehicleSpeed);
     }
     
     /**
@@ -129,46 +129,45 @@ public class Tire {
      * Slip = (wheel speed - vehicle speed) / max(wheel speed, vehicle speed)
      * 
      * In a real car:
-     * - No throttle = wheels match vehicle speed (road friction syncs them)
-     * - Throttle = wheels can spin faster than vehicle (wheelspin)
-     * - Braking = wheels can spin slower than vehicle (lockup)
+     * - Wheels primarily roll at vehicle speed (connected to ground)
+     * - Throttle can cause wheelspin (wheel faster than ground)
+     * - Braking can cause lockup (wheel slower than ground)
+     * - But RPM is determined by how fast wheels are actually rotating
      */
     private void calculateSlipRatio(double vehicleSpeed, double driveForce, 
                                      double brakeForce, double dt) {
-        // Target wheel speed should match vehicle speed when coasting
-        double targetWheelAngularVel = vehicleSpeed / GameConstants.TIRE_RADIUS;
+        // The wheel's base angular velocity comes from the vehicle rolling on the ground
+        // This is the fundamental connection: car moves → wheels rotate
+        double groundAngularVel = vehicleSpeed / GameConstants.TIRE_RADIUS;
         
-        // Calculate torque on wheel from engine
+        // Calculate torque that could cause slip
         double wheelTorque = driveForce * GameConstants.TIRE_RADIUS;
-        
-        // Brake torque opposes rotation
         if (angularVelocity > 0) {
             wheelTorque -= brakeForce * GameConstants.TIRE_RADIUS;
         } else if (angularVelocity < 0) {
             wheelTorque += brakeForce * GameConstants.TIRE_RADIUS;
         }
         
-        // Check if coasting (no significant drive force or brake)
-        boolean isCoasting = Math.abs(driveForce) < 50 && Math.abs(brakeForce) < 50;
+        // Wheel inertia for slip calculation
+        double wheelInertia = 1.5;
+        double potentialSlipAccel = wheelTorque / wheelInertia;
         
-        if (isCoasting) {
-            // When coasting, wheels naturally sync to road speed due to friction
-            // This is what happens in a real car - the road "pulls" the wheels
-            double syncRate = 5.0; // How fast wheels sync to road (higher = faster)
-            angularVelocity = MathUtils.approach(angularVelocity, targetWheelAngularVel, syncRate * dt);
-        } else {
-            // Wheel inertia (simplified)
-            double wheelInertia = 1.5; // kg*m² - slightly higher for more realistic response
-            double angularAccel = wheelTorque / wheelInertia;
-            
-            // Update angular velocity
-            angularVelocity += angularAccel * dt;
-            
-            // Road friction tries to sync wheel to vehicle speed (opposes slip)
-            // This prevents runaway wheelspin
-            double slipCorrection = (targetWheelAngularVel - angularVelocity) * grip * 2.0;
-            angularVelocity += slipCorrection * dt;
+        // The wheel speed is primarily determined by ground speed
+        // Slip occurs when torque overcomes grip
+        double maxSlipSpeed = 5.0; // Maximum wheel speed difference from ground (rad/s)
+        
+        // Calculate target wheel speed: ground speed + any slip from torque
+        double slipVelocity = potentialSlipAccel * dt * 0.5; // Damped slip response
+        slipVelocity = MathUtils.clamp(slipVelocity, -maxSlipSpeed, maxSlipSpeed);
+        
+        // Only allow significant slip if torque is high (wheelspin/lockup)
+        double slipThreshold = 1000; // Newtons of force needed for slip
+        if (Math.abs(driveForce) < slipThreshold && Math.abs(brakeForce) < slipThreshold) {
+            slipVelocity = 0; // No significant torque, wheels roll with ground
         }
+        
+        // Set wheel angular velocity: primarily ground speed, plus any slip
+        angularVelocity = groundAngularVel + slipVelocity;
         
         // Prevent negative rotation when nearly stopped
         if (Math.abs(vehicleSpeed) < 0.5 && Math.abs(driveForce) < 50) {
@@ -249,19 +248,67 @@ public class Tire {
     
     /**
      * Update visual effects (smoke, tire marks)
+     * Smoke is generated based on actual loss of traction:
+     * - Rear wheels: smoke when spinning (wheelspin from too much throttle)
+     * - Front wheels: smoke when understeering (high slip angle, loss of lateral grip)
+     * @param vehicleSpeed current vehicle speed to determine if car is actually moving
      */
-    private void updateEffects() {
+    private void updateEffects(double vehicleSpeed) {
         double totalSlip = Math.abs(slipRatio) + Math.abs(slipAngle) / 45;
         
-        // Smoke when slipping
-        if (totalSlip > GameConstants.SMOKE_THRESHOLD_SLIP) {
-            smokeIntensity = MathUtils.clamp(totalSlip - GameConstants.SMOKE_THRESHOLD_SLIP, 0, 1);
-        } else {
-            smokeIntensity = 0;
+        // Calculate wheel speed for intensity scaling
+        double wheelSpeed = Math.abs(angularVelocity * GameConstants.TIRE_RADIUS);
+        
+        // Only generate smoke if car is actually moving at a reasonable speed
+        double minSpeedForSmoke = 1.0; // m/s - need some movement for smoke
+        boolean carIsMoving = Math.abs(vehicleSpeed) > minSpeedForSmoke || wheelSpeed > minSpeedForSmoke;
+        
+        smokeIntensity = 0;
+        
+        if (carIsMoving) {
+            if (isRear()) {
+                // REAR WHEELS: Smoke only when wheelspin occurs (isSpinning)
+                // isSpinning is true when slip ratio is high AND there's drive force
+                if (isSpinning || isLocked) {
+                    // Base intensity from slip ratio (how much the wheel is spinning vs ground speed)
+                    double slipIntensity = Math.abs(slipRatio);
+                    
+                    // Scale with wheel speed - faster spin = more smoke
+                    double speedScale = MathUtils.clamp(wheelSpeed / 20.0, 0.3, 2.0);
+                    
+                    smokeIntensity = MathUtils.clamp(slipIntensity * speedScale, 0, 1);
+                }
+                // Also smoke during heavy drifting (high slip angle on rears)
+                else if (Math.abs(slipAngle) > 15 && Math.abs(vehicleSpeed) > 5) {
+                    double driftIntensity = (Math.abs(slipAngle) - 15) / 45.0;
+                    double speedScale = MathUtils.clamp(Math.abs(vehicleSpeed) / 15.0, 0.3, 1.5);
+                    smokeIntensity = MathUtils.clamp(driftIntensity * speedScale, 0, 0.8);
+                }
+            } else {
+                // FRONT WHEELS: Smoke only during understeer (loss of front grip)
+                // Understeer = high slip angle on front tires while moving at speed
+                double understeerThreshold = 12.0; // degrees - above this = losing front grip
+                
+                if (Math.abs(slipAngle) > understeerThreshold && Math.abs(vehicleSpeed) > 5) {
+                    // Intensity based on how much slip angle exceeds threshold
+                    double understeerAmount = (Math.abs(slipAngle) - understeerThreshold) / 40.0;
+                    
+                    // Scale with vehicle speed - faster = more smoke
+                    double speedScale = MathUtils.clamp(Math.abs(vehicleSpeed) / 15.0, 0.3, 1.5);
+                    
+                    smokeIntensity = MathUtils.clamp(understeerAmount * speedScale, 0, 0.7);
+                }
+                // Also smoke if front wheels lock up during hard braking
+                else if (isLocked && Math.abs(vehicleSpeed) > 3) {
+                    double lockIntensity = Math.abs(slipRatio);
+                    double speedScale = MathUtils.clamp(Math.abs(vehicleSpeed) / 10.0, 0.3, 1.5);
+                    smokeIntensity = MathUtils.clamp(lockIntensity * speedScale, 0, 0.8);
+                }
+            }
         }
         
-        // Leave tire marks when sliding
-        leavingMarks = totalSlip > 0.15;
+        // Leave tire marks whenever smoke is being produced (drifting, wheelspin, lockup, etc.)
+        leavingMarks = smokeIntensity > 0.1;
         
         // Increase wear when sliding
         if (totalSlip > 0.2) {

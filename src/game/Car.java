@@ -1,8 +1,8 @@
 package game;
 
+import graphics.ParticleSystem;
 import physics.Tire;
 import physics.VehiclePhysics;
-import graphics.ParticleSystem;
 import util.GameConstants;
 import util.Vector2D;
 
@@ -62,21 +62,15 @@ public class Car {
         // Update state flags
         this.isAccelerating = throttle > 0.1;
         this.isBraking = brake > 0.1 || handbrake;
-        this.isReversing = physics.getSpeed() < 1 && brake > 0.1 && 
-                          physics.getEngine().getCurrentGear() != -1;
+        this.isReversing = false; // Reverse disabled - S is now brake only
         
-        // Handle reverse gear
-        if (isReversing && physics.getSpeed() < 0.5) {
-            physics.getEngine().setReverse();
-            physics.setThrottle(brake);
-            physics.setBrake(0);
-        } else {
-            if (physics.getEngine().getCurrentGear() == -1 && throttle > 0.1) {
-                physics.getEngine().shiftUp(); // Go back to 1st gear
-            }
-            physics.setThrottle(throttle);
-            physics.setBrake(brake);
+        // S key is brakes only - no automatic reverse
+        // Exit reverse gear if in it and pressing throttle
+        if (physics.getEngine().getCurrentGear() == -1 && throttle > 0.1) {
+            physics.getEngine().shiftUp(); // Go back to 1st gear
         }
+        physics.setThrottle(throttle);
+        physics.setBrake(brake);
         
         physics.setSteering(steering);
         physics.setHandbrake(handbrake);
@@ -84,8 +78,7 @@ public class Car {
         // Update physics
         physics.update(dt);
         
-        // Auto shift (simple implementation)
-        autoShift();
+        // Manual transmission - player controls gear shifts (no auto shift)
         
         // Emit tire smoke
         updateTireEffects(dt);
@@ -116,9 +109,9 @@ public class Car {
         boolean hasSpeed = physics.getSpeed() > 5;
         
         if (quickLiftOff && highRpm && offCooldown && hasSpeed) {
-            // Calculate exhaust position (behind the car)
-            double exhaustOffsetX = -GameConstants.CAR_LENGTH / 2 - 0.3;
-            double exhaustOffsetY = GameConstants.CAR_WIDTH / 4; // Slightly to one side
+            // Calculate exhaust position (behind the car, right side)
+            double exhaustOffsetX = -GameConstants.CAR_LENGTH / 2 - 0.1;
+            double exhaustOffsetY = GameConstants.CAR_WIDTH / 2 - 0.3; // Right side of car
             
             double cos = Math.cos(physics.getRotation());
             double sin = Math.sin(physics.getRotation());
@@ -141,8 +134,9 @@ public class Car {
         
         // Also trigger backfire on rev limiter hit
         if (physics.getEngine().isRevLimiterActive() && offCooldown) {
-            double exhaustOffsetX = -GameConstants.CAR_LENGTH / 2 - 0.3;
-            double exhaustOffsetY = GameConstants.CAR_WIDTH / 4;
+            // Exhaust is at right side of car
+            double exhaustOffsetX = -GameConstants.CAR_LENGTH / 2 - 0.1;
+            double exhaustOffsetY = GameConstants.CAR_WIDTH / 2 - 0.3; // Right side of car
             
             double cos = Math.cos(physics.getRotation());
             double sin = Math.sin(physics.getRotation());
@@ -150,7 +144,7 @@ public class Car {
             double exhaustY = physics.getPosition().y + exhaustOffsetX * sin + exhaustOffsetY * cos;
             
             particles.spawnBackfire(exhaustX, exhaustY, physics.getRotation(), 0.8);
-            backfireTimer = BACKFIRE_COOLDOWN * 0.5; // Shorter cooldown for rev limiter pops
+            backfireTimer = BACKFIRE_COOLDOWN * 0.3; // Very short cooldown for continuous pops at rev limiter
             
             // SFX NOTE: Trigger rev limiter pop sound here (slightly different from lift-off backfire)
         }

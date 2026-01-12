@@ -123,7 +123,9 @@ public class VehiclePhysics {
             }
             
             // Drive force (RWD - only rear wheels)
-            double tireDriveForce = tire.isRear() ? driveForce * throttleInput : 0;
+            // Engine's getDriveForce() already includes throttle input through torque calculation
+            // When rev limiter is active, this will be 0
+            double tireDriveForce = tire.isRear() ? driveForce : 0;
             
             // Update tire physics
             tire.update(dt, forwardSpeed, tireDriveForce, brakeForceTire, 
@@ -151,16 +153,25 @@ public class VehiclePhysics {
             totalTorque += worldTirePos.cross(tireForce);
         }
         
-        // Aerodynamic drag
-        double dragForce = 0.5 * GameConstants.AIR_DENSITY * GameConstants.DRAG_COEFFICIENT * 
+        // Aerodynamic drag (quadratic - increases with speed squared)
+        // Reduced to prevent overly fast deceleration at high speeds
+        double quadraticDrag = 0.5 * GameConstants.AIR_DENSITY * GameConstants.DRAG_COEFFICIENT * 
                           GameConstants.FRONTAL_AREA * speed * speed;
-        Vector2D drag = velocity.normalize().multiply(-dragForce);
+        
+        // Linear drag for more consistent deceleration feel across all speeds
+        double linearDrag = GameConstants.LINEAR_DRAG * speed;
+        
+        // Combined drag force
+        double totalDrag = quadraticDrag + linearDrag;
+        Vector2D drag = velocity.normalize().multiply(-totalDrag);
         totalForce = totalForce.add(drag);
         
-        // Rolling resistance
+        // Rolling resistance - always active, proportional to speed
         if (speed > 0.1) {
             double rollingForce = GameConstants.CAR_MASS * GameConstants.GRAVITY * 
                                   GameConstants.ROLLING_RESISTANCE;
+            // Rolling resistance increases slightly with speed
+            rollingForce *= (1.0 + speed * 0.01);
             Vector2D rolling = velocity.normalize().multiply(-rollingForce);
             totalForce = totalForce.add(rolling);
         }
@@ -183,22 +194,31 @@ public class VehiclePhysics {
         double lateralVel = velocity.dot(right);
         if (Math.abs(lateralVel) > 0.1) {
             // Friction coefficient - MUCH higher when not applying throttle (tires can grip better)
-            double frictionCoef = (throttleInput < 0.1 && !handbrakeActive) ? 2.5 : 0.8;
+            double frictionCoef = (throttleInput < 0.1 && !handbrakeActive) ? 4.0 : 1.0;
             
             // Lateral friction force opposes sideways motion
             // F = μ * N where N is weight on tires
-            double lateralFrictionForce = frictionCoef * GameConstants.CAR_MASS * GameConstants.GRAVITY * 0.4;
+            double lateralFrictionForce = frictionCoef * GameConstants.CAR_MASS * GameConstants.GRAVITY * 0.5;
             
             // Apply friction force opposing lateral velocity - stronger to stop sliding faster
-            double lateralDragMag = Math.min(lateralFrictionForce, Math.abs(lateralVel) * GameConstants.CAR_MASS * 3);
+            double lateralDragMag = Math.min(lateralFrictionForce, Math.abs(lateralVel) * GameConstants.CAR_MASS * 5);
             Vector2D lateralDrag = right.multiply(-Math.signum(lateralVel) * lateralDragMag);
             totalForce = totalForce.add(lateralDrag);
         }
         
-        // Engine braking when coasting (no throttle, in gear) - increased force
-        if (throttleInput < 0.1 && forwardSpeed > 1.0 && !handbrakeActive) {
-            double engineBraking = 1200; // Newtons of engine braking (increased)
-            Vector2D engineBrakingForce = forward.multiply(-engineBraking);
+        // Engine braking when coasting (no throttle, in gear) - like a real manual transmission
+        // Apply based on actual speed, not just forward speed, so car slows after drifts
+        if (throttleInput < 0.1 && speed > 0.5 && !handbrakeActive) {
+            // Engine braking force depends on current gear - lower gears = stronger braking
+            int currentGear = engine.getCurrentGear();
+            double gearRatio = Math.abs(engine.getGearRatio());
+            // More engine braking in lower gears (higher gear ratio)
+            double engineBraking = 800 + gearRatio * 600; // Base + gear-dependent
+            if (speed < 8) {
+                engineBraking *= 1.5; // Extra strong at low speeds to stop the car
+            }
+            // Apply engine braking in direction opposing velocity (not just forward)
+            Vector2D engineBrakingForce = velocity.normalize().multiply(-engineBraking);
             totalForce = totalForce.add(engineBrakingForce);
         }
         
@@ -206,14 +226,23 @@ public class VehiclePhysics {
         Vector2D acceleration = totalForce.divide(GameConstants.CAR_MASS);
         velocity = velocity.add(acceleration.multiply(dt));
         
+        // Force car to stop at very low speeds when no throttle (prevents drifting at crawl speed)
+        if (speed < 0.3 && throttleInput < 0.1) {
+            velocity = new Vector2D(0, 0);
+        }
+        
         // Apply rotation (simplified moment of inertia)
         double momentOfInertia = GameConstants.CAR_MASS * GameConstants.CAR_LENGTH * 
                                  GameConstants.CAR_LENGTH / 12;
         double angularAccel = totalTorque / momentOfInertia;
         angularVelocity += angularAccel * dt;
         
-        // Damping on angular velocity - stronger to stop rotation faster
-        angularVelocity *= 0.95;
+        // Damping on angular velocity - much stronger when not on throttle to stop spinning
+        if (throttleInput < 0.1) {
+            angularVelocity *= 0.90; // Strong damping when coasting - car straightens out
+        } else {
+            angularVelocity *= 0.97; // Light damping when on throttle
+        }
         
         // Low-speed Ackermann steering (geometric steering at low speeds)
         // This provides direct rotation based on steering angle when moving slowly
@@ -320,14 +349,15 @@ public class VehiclePhysics {
      */
     private void updateDriftState(double dt, double forwardSpeed) {
         // Calculate angle between velocity and car heading
-        if (speed > 2) {
+        if (speed > 3) {
             double velocityAngle = velocity.angle();
             double angleDiff = MathUtils.normalizeAngle(velocityAngle - rotation);
             driftAngle = MathUtils.toDegrees(angleDiff);
             
-            // Check if drifting
+            // Check if drifting - require significant angle AND speed AND throttle input
+            // Real drifting requires maintaining throttle to keep rear wheels spinning
             boolean wasDrifting = isDrifting;
-            isDrifting = Math.abs(driftAngle) > GameConstants.DRIFT_ANGLE_THRESHOLD && speed > 5;
+            isDrifting = Math.abs(driftAngle) > 15 && speed > 8 && throttleInput > 0.2;
             
             if (isDrifting) {
                 if (wasDrifting) {

@@ -77,10 +77,11 @@ public class GameConstants {
     public static final double CAR_MASS = 1400;      // kg
     public static final double GRAVITY = 9.81;       // m/s²
     public static final double AIR_DENSITY = 1.225;  // kg/m³
-    public static final double DRAG_COEFFICIENT = 0.35;
-    public static final double GROUND_FRICTION = 0.08;   // Ground friction for faster stopping
+    public static final double DRAG_COEFFICIENT = 0.25;  // Reduced for less aggressive high-speed slowdown
+    public static final double LINEAR_DRAG = 200;    // Linear drag for consistent feel (Newtons per m/s)
+    public static final double GROUND_FRICTION = 0.15;   // Ground friction for low-speed stopping
     public static final double FRONTAL_AREA = 2.2;   // m²
-    public static final double ROLLING_RESISTANCE = 0.015;
+    public static final double ROLLING_RESISTANCE = 0.08; // Higher for realistic coasting deceleration
     
     // ============== STEERING ==============
     public static final double MAX_STEERING_ANGLE = 35;  // Degrees

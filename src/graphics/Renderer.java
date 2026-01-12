@@ -1,16 +1,13 @@
 package graphics;
 
+import game.Car;
 import java.awt.*;
 import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
-import java.util.List;
-
-import game.Car;
 import physics.Tire;
 import physics.VehiclePhysics;
 import scoring.DriftScoring;
 import util.GameConstants;
-import util.MathUtils;
 import world.Building;
 import world.CityWorld;
 import world.Road;
@@ -329,6 +326,32 @@ public class Renderer {
         bufferGraphics.fillRect(-carLength/2, -carWidth/2 + 1, 2, 2);
         bufferGraphics.fillRect(-carLength/2, carWidth/2 - 3, 2, 2);
         
+        // Exhaust pipe (small dark metal pipe at rear right of car)
+        bufferGraphics.setColor(new Color(0x3D3D3D)); // Dark metal
+        int exhaustX = -carLength/2 - 1; // Just barely sticking out back
+        int exhaustY = carWidth/2 - 3; // Right side near taillight
+        bufferGraphics.fillRect(exhaustX, exhaustY, 2, 2); // Small pipe
+        bufferGraphics.setColor(new Color(0x1A1A1A)); // Dark hole
+        bufferGraphics.fillRect(exhaustX, exhaustY, 1, 1); // Pipe opening
+        
+        // Draw flame shooting from exhaust when rev limiter is active (backfire)
+        boolean revLimiterActive = physics.getEngine().isRevLimiterActive();
+        double rpm = physics.getEngine().getRpm();
+        
+        if (revLimiterActive) {
+            // Bright pixelated flame shooting out the back
+            bufferGraphics.setColor(new Color(255, 255, 100)); // White-yellow core
+            bufferGraphics.fillRect(exhaustX - 1, exhaustY, 2, 2); // Core at exhaust
+            bufferGraphics.setColor(new Color(255, 200, 50)); // Yellow middle
+            bufferGraphics.fillRect(exhaustX - 3, exhaustY, 2, 2); // Flame body
+            bufferGraphics.setColor(new Color(255, 100, 30)); // Orange tip
+            bufferGraphics.fillRect(exhaustX - 5, exhaustY, 2, 2); // Flame tip
+        } else if (rpm > 6000) {
+            // Small exhaust glow at high RPM
+            bufferGraphics.setColor(new Color(255, 100, 50, 150)); // Dim orange
+            bufferGraphics.fillRect(exhaustX - 1, exhaustY, 1, 1);
+        }
+        
         // Brake lights (brighter when braking)
         if (car.isBraking()) {
             bufferGraphics.setColor(new Color(255, 50, 50));
@@ -457,6 +480,22 @@ public class Renderer {
                         gaugeY + 18, new Color(0xE94560));
         }
         
+        // Bogging indicator (engine struggling in too high a gear)
+        if (physics.getEngine().isBogging()) {
+            bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 12));
+            // Flash red when bogging badly
+            int bogAlpha = (int)(150 + 105 * physics.getEngine().getBogIntensity());
+            drawHUDText("!! SHIFT DOWN !!", GameConstants.RENDER_WIDTH/2 - 55, 
+                        gaugeY - 15, new Color(255, 100, 50, bogAlpha));
+        }
+        
+        // Rev limiter indicator
+        if (physics.getEngine().isRevLimiterActive()) {
+            bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 12));
+            drawHUDText("!! REV LIMIT !!", GameConstants.RENDER_WIDTH/2 - 50, 
+                        gaugeY - 15, new Color(255, 50, 50));
+        }
+        
         // ====== TOP AREA: SCORES AND DRIFT INFO ======
         
         // Total score - top right
@@ -530,11 +569,13 @@ public class Renderer {
         bufferGraphics.fillArc(centerX - radius, centerY - radius, 
                                radius * 2, radius * 2, 0, 180);
         
-        // Draw tick marks and numbers
+        // Draw tick marks and numbers - show 0-8k RPM scale
+        // The gauge goes from 0 to 8000 RPM for easy reading
+        double gaugeMaxRpm = 8000.0;
         bufferGraphics.setFont(new Font("Monospaced", Font.PLAIN, 6));
         for (int i = 0; i <= 8; i++) {
-            double tickRpm = i * 1000.0 / 8000.0; // 0 to 8000 RPM
-            double angle = Math.PI - (tickRpm * Math.PI); // 180 to 0 degrees
+            double tickPercent = i / 8.0; // 0 to 1
+            double angle = Math.PI - (tickPercent * Math.PI); // 180 to 0 degrees
             
             int innerRadius = radius - 6;
             int outerRadius = radius - 2;
@@ -544,7 +585,7 @@ public class Renderer {
             int x2 = centerX + (int)(Math.cos(angle) * outerRadius);
             int y2 = centerY - (int)(Math.sin(angle) * outerRadius);
             
-            // Red zone for high RPM (above 6000)
+            // Red zone for high RPM (6k and above)
             if (i >= 6) {
                 bufferGraphics.setColor(new Color(0xE94560));
             } else {
@@ -552,7 +593,7 @@ public class Renderer {
             }
             bufferGraphics.drawLine(x1, y1, x2, y2);
             
-            // Draw numbers
+            // Draw numbers (in thousands) - 0, 2, 4, 6, 8
             if (i % 2 == 0) {
                 int numX = centerX + (int)(Math.cos(angle) * (radius - 12)) - 3;
                 int numY = centerY - (int)(Math.sin(angle) * (radius - 12)) + 2;
@@ -561,8 +602,12 @@ public class Renderer {
             }
         }
         
-        // Draw needle with bounce effect
-        double needleAngle = Math.PI - (displayPercent * Math.PI);
+        // Calculate needle position based on actual RPM (0-8000 scale)
+        double needlePercent = rpm / gaugeMaxRpm;
+        needlePercent = Math.max(0, Math.min(1.0, needlePercent + bounce));
+        
+        // Draw needle
+        double needleAngle = Math.PI - (needlePercent * Math.PI);
         int needleLength = radius - 10;
         int needleX = centerX + (int)(Math.cos(needleAngle) * needleLength);
         int needleY = centerY - (int)(Math.sin(needleAngle) * needleLength);

@@ -28,6 +28,10 @@ public class Engine {
     private double currentTorque;
     private double currentPower;
     
+    // Bogging state (too low RPM for gear)
+    private boolean isBogging;
+    private double bogIntensity; // 0-1 how badly bogged
+    
     // Rev limiter
     private boolean revLimiterActive;
     private double revLimiterTimer;
@@ -44,6 +48,8 @@ public class Engine {
         this.clutch = 1.0;
         this.horsepower = GameConstants.ENGINE_HORSEPOWER;
         this.peakTorque = GameConstants.ENGINE_TORQUE;
+        this.isBogging = false;
+        this.bogIntensity = 0;
         this.revLimiterActive = false;
         this.revLimiterTimer = 0;
         this.revLimiterBounce = 0;
@@ -63,32 +69,45 @@ public class Engine {
             if (revLimiterTimer <= 0) {
                 revLimiterActive = false;
             }
-            throttle = 0; // Cut fuel at rev limiter
         }
         
-        // Calculate target RPM from wheel speed if clutch is engaged
-        double targetRpm;
+        // Calculate RPM directly from wheel speed when clutch is engaged (realistic)
+        // RPM = wheelRPM * gearRatio * finalDrive
+        // This is INSTANT - the engine is mechanically linked to wheels through gearbox
         if (clutch > 0.5 && currentGear != 0) {
             double gearRatio = getGearRatio();
-            double wheelRpm = (wheelSpeed / (2 * Math.PI)) * 60; // Convert rad/s to RPM
-            targetRpm = Math.abs(wheelRpm * gearRatio * GameConstants.FINAL_DRIVE_RATIO);
-            targetRpm = Math.max(targetRpm, GameConstants.IDLE_RPM);
+            double wheelRpm = Math.abs(wheelSpeed / (2 * Math.PI)) * 60; // Convert rad/s to RPM
+            
+            // Direct RPM calculation from wheel speed - this is how real cars work
+            // When you shift gears, RPM changes INSTANTLY because it's a mechanical connection
+            rpm = wheelRpm * Math.abs(gearRatio) * GameConstants.FINAL_DRIVE_RATIO;
+            
+            // Engine can't go below idle when clutch is engaged (it would stall)
+            if (rpm < GameConstants.IDLE_RPM) {
+                rpm = GameConstants.IDLE_RPM;
+            }
         } else {
-            // Neutral or clutch disengaged - RPM based on throttle
-            targetRpm = GameConstants.IDLE_RPM + throttle * (GameConstants.REDLINE_RPM - GameConstants.IDLE_RPM) * 0.8;
+            // Neutral or clutch disengaged - RPM based on throttle (can rev freely)
+            double targetRpm = GameConstants.IDLE_RPM + throttle * (GameConstants.REDLINE_RPM - GameConstants.IDLE_RPM) * 0.8;
+            double rpmChangeRate = 15000 * dt; // Fast rev response when not connected to wheels
+            rpm = MathUtils.approach(rpm, targetRpm, rpmChangeRate);
         }
         
-        // Smooth RPM transition
-        double rpmChangeRate = 5000 * dt; // RPM change per second
-        if (throttle > 0.1) {
-            rpmChangeRate *= 1.5; // Rev up faster with throttle
+        // Detect bogging - RPM near idle while trying to accelerate in high gear
+        double bogThreshold = GameConstants.IDLE_RPM + 500; // Just above idle
+        if (rpm < bogThreshold && throttle > 0.3 && currentGear > 2) {
+            isBogging = true;
+            bogIntensity = (bogThreshold - rpm) / 500.0;
+            bogIntensity = MathUtils.clamp(bogIntensity, 0, 1);
+        } else {
+            isBogging = false;
+            bogIntensity = 0;
         }
-        rpm = MathUtils.approach(rpm, targetRpm, rpmChangeRate);
         
         // Check rev limiter
         if (rpm >= GameConstants.REV_LIMITER_RPM) {
             revLimiterActive = true;
-            revLimiterTimer = 0.05; // 50ms fuel cut
+            revLimiterTimer = 0.15; // 150ms fuel cut - longer for visible flame effect
             rpm = GameConstants.REV_LIMITER_RPM;
             
             // Trigger bounce effect - needle bounces back when hitting limiter
@@ -131,8 +150,14 @@ public class Engine {
     /**
      * Realistic torque curve simulation
      * Peak torque around 4500 RPM, falls off at high RPM
+     * Torque drastically reduced when bogging or at rev limiter
      */
     private double calculateTorque() {
+        // No torque when rev limiter is cutting fuel
+        if (revLimiterActive) {
+            return 0;
+        }
+        
         double rpmNormalized = (rpm - GameConstants.IDLE_RPM) / 
                                (GameConstants.REDLINE_RPM - GameConstants.IDLE_RPM);
         
@@ -151,6 +176,11 @@ public class Engine {
         
         // Apply clutch
         torque *= clutch;
+        
+        // Drastically reduce torque when bogging (engine can't produce power at low RPM)
+        if (isBogging) {
+            torque *= (1.0 - bogIntensity * 0.8); // Up to 80% power loss when badly bogged
+        }
         
         return torque;
     }
@@ -224,6 +254,20 @@ public class Engine {
     public double getCurrentPower() { return currentPower; }
     public double getClutch() { return clutch; }
     public boolean isRevLimiterActive() { return revLimiterActive; }
+    public boolean isBogging() { return isBogging; }
+    public double getBogIntensity() { return bogIntensity; }
+    
+    /**
+     * Calculate theoretical top speed for current gear (in m/s)
+     * This is the speed where engine hits redline in this gear
+     */
+    public double getGearTopSpeed() {
+        if (currentGear <= 0) return 0;
+        // At redline RPM, what wheel speed do we get?
+        double redlineWheelRpm = GameConstants.REDLINE_RPM / (Math.abs(getGearRatio()) * GameConstants.FINAL_DRIVE_RATIO);
+        double redlineWheelRadPerSec = redlineWheelRpm * 2 * Math.PI / 60;
+        return redlineWheelRadPerSec * GameConstants.TIRE_RADIUS;
+    }
     
     /**
      * Get the rev limiter bounce offset for visual effects.
@@ -234,9 +278,9 @@ public class Engine {
     public double getRevLimiterBounce() { return revLimiterBounce; }
     
     /**
-     * Get RPM as percentage of redline
+     * Get RPM as percentage of rev limiter (for gauge display)
      */
     public double getRpmPercentage() {
-        return (rpm - GameConstants.IDLE_RPM) / (GameConstants.REDLINE_RPM - GameConstants.IDLE_RPM);
+        return (rpm - GameConstants.IDLE_RPM) / (GameConstants.REV_LIMITER_RPM - GameConstants.IDLE_RPM);
     }
 }
