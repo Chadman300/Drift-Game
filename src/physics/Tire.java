@@ -39,6 +39,10 @@ public class Tire {
     private double smokeIntensity;
     private boolean leavingMarks;
     
+    // Grip modifier from upgrades
+    private double gripModifier = 1.0;
+    private double durabilityModifier = 1.0;
+    
     public Tire(Position position) {
         this.position = position;
         this.pressure = GameConstants.OPTIMAL_TIRE_PRESSURE;
@@ -106,7 +110,7 @@ public class Tire {
      * Calculate current grip based on temperature, pressure, wear
      */
     private void calculateGrip() {
-        double baseGrip = GameConstants.BASE_TIRE_GRIP;
+        double baseGrip = GameConstants.BASE_TIRE_GRIP * gripModifier;
         
         // Temperature factor - optimal around 90°C
         double tempDiff = Math.abs(temperature - GameConstants.TIRE_TEMP_OPTIMAL);
@@ -118,8 +122,10 @@ public class Tire {
         double pressureFactor = 1.0 - (pressureDiff / 20) * 0.2;
         pressureFactor = MathUtils.clamp(pressureFactor, 0.7, 1.0);
         
-        // Wear factor
-        double wearFactor = 1.0 - wear * 0.4;
+        // Wear factor - scaled by durability modifier
+        double effectiveWear = wear / Math.max(durabilityModifier, 0.1);
+        double wearFactor = 1.0 - effectiveWear * 0.4;
+        wearFactor = MathUtils.clamp(wearFactor, 0.3, 1.0);
         
         grip = baseGrip * tempFactor * pressureFactor * wearFactor;
     }
@@ -149,24 +155,31 @@ public class Tire {
         }
         
         // Wheel inertia for slip calculation
-        double wheelInertia = 1.5;
+        double wheelInertia = 1.2;
         double potentialSlipAccel = wheelTorque / wheelInertia;
         
         // The wheel speed is primarily determined by ground speed
         // Slip occurs when torque overcomes grip
-        double maxSlipSpeed = 5.0; // Maximum wheel speed difference from ground (rad/s)
+        // During drifting with throttle, wheels can spin MUCH faster than ground speed
+        double maxSlipSpeed = 25.0; // rad/s - allows significant wheelspin for realistic RPM
         
-        // Calculate target wheel speed: ground speed + any slip from torque
-        double slipVelocity = potentialSlipAccel * dt * 0.5; // Damped slip response
-        slipVelocity = MathUtils.clamp(slipVelocity, -maxSlipSpeed, maxSlipSpeed);
-        
-        // Only allow significant slip if torque is high (wheelspin/lockup)
-        double slipThreshold = 1000; // Newtons of force needed for slip
-        if (Math.abs(driveForce) < slipThreshold && Math.abs(brakeForce) < slipThreshold) {
-            slipVelocity = 0; // No significant torque, wheels roll with ground
+        // Calculate slip velocity based on drive force
+        // More throttle = more potential wheelspin
+        double slipVelocity = 0;
+        if (driveForce > 500) {
+            // Wheelspin - wheels spin faster than ground
+            // Scale with drive force - more power = more spin
+            double spinFactor = (driveForce - 500) / 3000.0; // 0 to 1+ based on power
+            spinFactor = MathUtils.clamp(spinFactor, 0, 1.5);
+            slipVelocity = spinFactor * maxSlipSpeed;
+        } else if (brakeForce > 500) {
+            // Lockup - wheels slower than ground
+            double lockFactor = (brakeForce - 500) / 3000.0;
+            lockFactor = MathUtils.clamp(lockFactor, 0, 1);
+            slipVelocity = -lockFactor * maxSlipSpeed * 0.8;
         }
         
-        // Set wheel angular velocity: primarily ground speed, plus any slip
+        // Set wheel angular velocity: ground speed + wheelspin
         angularVelocity = groundAngularVel + slipVelocity;
         
         // Prevent negative rotation when nearly stopped
@@ -228,21 +241,26 @@ public class Tire {
         lateralForce = D * Math.sin(C * Math.atan(B * slipAngleRad - 
                        E * (B * slipAngleRad - Math.atan(B * slipAngleRad))));
         
-        // Reduce forces when heavily sliding (friction circle)
+        // Friction circle - but less aggressive so you can accelerate while turning
+        // Only reduce longitudinal force significantly when sliding very hard
         double totalSlip = Math.sqrt(slipRatio * slipRatio + 
                            Math.pow(slipAngle / 90, 2));
-        if (totalSlip > 1) {
-            double reduction = 1.0 / totalSlip;
+        if (totalSlip > 1.5) {
+            // Only reduce above threshold, and less aggressively
+            double reduction = 1.5 / totalSlip;
+            reduction = Math.max(reduction, 0.5); // Never reduce below 50%
             longitudinalForce *= reduction;
             lateralForce *= reduction;
         }
         
-        // Apply grip falloff when sliding heavily
+        // Apply grip falloff when sliding heavily - but preserve more longitudinal force
         if (Math.abs(slipAngle) > GameConstants.SLIP_ANGLE_DRIFT) {
             double falloff = 1.0 - GameConstants.TIRE_GRIP_FALLOFF * 
-                            (Math.abs(slipAngle) - GameConstants.SLIP_ANGLE_DRIFT) / 45;
-            falloff = MathUtils.clamp(falloff, 0.4, 1.0);
+                            (Math.abs(slipAngle) - GameConstants.SLIP_ANGLE_DRIFT) / 60;
+            falloff = MathUtils.clamp(falloff, 0.5, 1.0);
             lateralForce *= falloff;
+            // Preserve most of longitudinal force during drifts
+            longitudinalForce *= (0.7 + 0.3 * falloff);
         }
     }
     
@@ -260,8 +278,9 @@ public class Tire {
         double wheelSpeed = Math.abs(angularVelocity * GameConstants.TIRE_RADIUS);
         
         // Only generate smoke if car is actually moving at a reasonable speed
-        double minSpeedForSmoke = 1.0; // m/s - need some movement for smoke
-        boolean carIsMoving = Math.abs(vehicleSpeed) > minSpeedForSmoke || wheelSpeed > minSpeedForSmoke;
+        // Increased threshold - turning wheels while stationary should NOT create smoke
+        double minSpeedForSmoke = 2.0; // m/s - need significant movement for smoke
+        boolean carIsMoving = Math.abs(vehicleSpeed) > minSpeedForSmoke;
         
         smokeIntensity = 0;
         
@@ -349,4 +368,11 @@ public class Tire {
     public boolean isRear() {
         return position == Position.REAR_LEFT || position == Position.REAR_RIGHT;
     }
+    
+    // Upgrade modifiers
+    public void setGripModifier(double mod) { this.gripModifier = mod; }
+    public void setDurabilityModifier(double mod) { this.durabilityModifier = mod; }
+    public double getGripModifier() { return gripModifier; }
+    public double getDurabilityModifier() { return durabilityModifier; }
+    public void resetWear() { this.wear = 0; }
 }

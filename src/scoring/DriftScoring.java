@@ -38,6 +38,9 @@ public class DriftScoring {
     private double longestDriftTime;
     private double highestDriftAngle;
     
+    // For shop money - tracks last banked points (consumed each frame)
+    private int lastBankedPoints;
+    
     public DriftScoring() {
         reset();
     }
@@ -117,6 +120,9 @@ public class DriftScoring {
         if (currentDriftScore > 0) {
             // Apply combo multiplier
             long finalScore = (long)(currentDriftScore * comboMultiplier);
+            
+            // Track for money reward (consumed by GameLoop)
+            lastBankedPoints = (int) finalScore;
             
             // Add to total
             totalScore += finalScore;
@@ -202,6 +208,16 @@ public class DriftScoring {
     public double getTotalDriftDistance() { return totalDriftDistance; }
     public double getLongestDriftTime() { return longestDriftTime; }
     public double getHighestDriftAngle() { return highestDriftAngle; }
+    
+    /**
+     * Get and consume the last banked points (for money rewards)
+     * Returns 0 if no points were banked since last call
+     */
+    public int getLastBankedPoints() {
+        int points = lastBankedPoints;
+        lastBankedPoints = 0; // Consume
+        return points;
+    }
     
     /**
      * Get grade for current drift

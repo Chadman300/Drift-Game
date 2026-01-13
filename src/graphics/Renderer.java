@@ -73,6 +73,13 @@ public class Renderer {
      * Render the entire game frame
      */
     public void render(Graphics g, CityWorld world, Car car, DriftScoring scoring) {
+        render(g, world, car, scoring, null);
+    }
+    
+    /**
+     * Render the entire game frame with optional shop overlay
+     */
+    public void render(Graphics g, CityWorld world, Car car, DriftScoring scoring, ui.ShopPanel shopPanel) {
         // Clear buffer
         bufferGraphics.setColor(new Color(0x1A1A2E)); // Dark background
         bufferGraphics.fillRect(0, 0, GameConstants.RENDER_WIDTH, GameConstants.RENDER_HEIGHT);
@@ -89,6 +96,11 @@ public class Renderer {
         
         // Draw HUD on top
         drawHUD(car, scoring);
+        
+        // Draw shop panel if visible (at pixel art resolution)
+        if (shopPanel != null && shopPanel.isVisible()) {
+            shopPanel.render(bufferGraphics, GameConstants.RENDER_WIDTH, GameConstants.RENDER_HEIGHT);
+        }
         
         // Scale up to window (pixel art effect)
         Graphics2D g2d = (Graphics2D) g;

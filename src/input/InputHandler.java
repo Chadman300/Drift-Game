@@ -25,6 +25,14 @@ public class InputHandler implements KeyListener {
     private boolean pause;
     private boolean reset;
     
+    // Shop inputs
+    private boolean shopToggle;
+    private boolean shopNextCat;
+    private boolean shopPrevCat;
+    private boolean shopSelectNext;
+    private boolean shopSelectPrev;
+    private boolean shopConfirm;
+    
     // Input smoothing
     private double throttleSmooth;
     private double brakeSmooth;
@@ -72,6 +80,12 @@ public class InputHandler implements KeyListener {
         shiftDown = false;
         pause = false;
         reset = false;
+        shopToggle = false;
+        shopNextCat = false;
+        shopPrevCat = false;
+        shopSelectNext = false;
+        shopSelectPrev = false;
+        shopConfirm = false;
     }
     
     /**
@@ -151,6 +165,25 @@ public class InputHandler implements KeyListener {
             if (key == KeyEvent.VK_R) {
                 reset = true;
             }
+            // Shop controls
+            if (key == KeyEvent.VK_TAB) {
+                shopToggle = true;
+            }
+            if (key == KeyEvent.VK_E) {
+                shopNextCat = true;
+            }
+            if (key == KeyEvent.VK_Q) {
+                shopPrevCat = true;
+            }
+            if (key == KeyEvent.VK_W || key == KeyEvent.VK_UP) {
+                shopSelectPrev = true;
+            }
+            if (key == KeyEvent.VK_S || key == KeyEvent.VK_DOWN) {
+                shopSelectNext = true;
+            }
+            if (key == KeyEvent.VK_ENTER || key == KeyEvent.VK_SPACE) {
+                shopConfirm = true;
+            }
         }
         
         pressedKeys.add(key);
@@ -190,4 +223,12 @@ public class InputHandler implements KeyListener {
     public boolean isShiftDownPressed() { return shiftDown; }
     public boolean isPausePressed() { return pause; }
     public boolean isResetPressed() { return reset; }
+    
+    // Shop input getters
+    public boolean isShopPressed() { return shopToggle; }
+    public boolean isShopNextCategory() { return shopNextCat; }
+    public boolean isShopPrevCategory() { return shopPrevCat; }
+    public boolean isShopSelectNext() { return shopSelectNext; }
+    public boolean isShopSelectPrev() { return shopSelectPrev; }
+    public boolean isShopConfirm() { return shopConfirm; }
 }

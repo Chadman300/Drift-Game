@@ -66,22 +66,22 @@ public class GameConstants {
     public static final double TIRE_TEMP_MAX = 150;
     
     // ============== TRACTION & DRIFT PHYSICS ==============
-    public static final double STATIC_FRICTION_COEF = 1.2;   // Grip when not sliding
-    public static final double KINETIC_FRICTION_COEF = 0.8;  // Grip when sliding
-    public static final double SLIP_ANGLE_PEAK = 8.0;        // Degrees for max grip
-    public static final double SLIP_ANGLE_DRIFT = 15.0;      // Degrees when drifting starts
-    public static final double SLIP_RATIO_THRESHOLD = 0.15;  // When tires start spinning
-    public static final double DRIFT_ANGLE_THRESHOLD = 10.0; // Degrees to be considered drifting
+    public static final double STATIC_FRICTION_COEF = 0.9;   // Grip when not sliding (reduced for more sliding)
+    public static final double KINETIC_FRICTION_COEF = 0.55; // Grip when sliding (reduced for longer slides)
+    public static final double SLIP_ANGLE_PEAK = 6.0;        // Degrees for max grip (lower = easier to break traction)
+    public static final double SLIP_ANGLE_DRIFT = 12.0;      // Degrees when drifting starts (lower = drifts start easier)
+    public static final double SLIP_RATIO_THRESHOLD = 0.12;  // When tires start spinning (lower = easier wheelspin)
+    public static final double DRIFT_ANGLE_THRESHOLD = 8.0;  // Degrees to be considered drifting (lower threshold)
     
     // ============== WEIGHT & PHYSICS ==============
     public static final double CAR_MASS = 1400;      // kg
     public static final double GRAVITY = 9.81;       // m/s²
     public static final double AIR_DENSITY = 1.225;  // kg/m³
-    public static final double DRAG_COEFFICIENT = 0.25;  // Reduced for less aggressive high-speed slowdown
-    public static final double LINEAR_DRAG = 200;    // Linear drag for consistent feel (Newtons per m/s)
-    public static final double GROUND_FRICTION = 0.15;   // Ground friction for low-speed stopping
-    public static final double FRONTAL_AREA = 2.2;   // m²
-    public static final double ROLLING_RESISTANCE = 0.08; // Higher for realistic coasting deceleration
+    public static final double DRAG_COEFFICIENT = 0.18;  // Lower for less speed loss
+    public static final double LINEAR_DRAG = 80;     // Reduced for longer coasting
+    public static final double GROUND_FRICTION = 0.06;   // Lower for less passive slowdown
+    public static final double FRONTAL_AREA = 2.0;   // m²
+    public static final double ROLLING_RESISTANCE = 0.04; // Lower for longer coasting
     
     // ============== STEERING ==============
     public static final double MAX_STEERING_ANGLE = 35;  // Degrees

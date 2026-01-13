@@ -71,37 +71,54 @@ public class Engine {
             }
         }
         
-        // Calculate RPM directly from wheel speed when clutch is engaged (realistic)
-        // RPM = wheelRPM * gearRatio * finalDrive
-        // This is INSTANT - the engine is mechanically linked to wheels through gearbox
+        // Calculate target RPM from wheel speed (what RPM would be if fully connected)
+        double gearRatio = getGearRatio();
+        double wheelRpm = Math.abs(wheelSpeed / (2 * Math.PI)) * 60;
+        double targetRpmFromWheels = wheelRpm * Math.abs(gearRatio) * GameConstants.FINAL_DRIVE_RATIO;
+        
+        // When clutch is engaged and in gear
         if (clutch > 0.5 && currentGear != 0) {
-            double gearRatio = getGearRatio();
-            double wheelRpm = Math.abs(wheelSpeed / (2 * Math.PI)) * 60; // Convert rad/s to RPM
+            // RPM is directly tied to wheel speed through gearbox (mechanical connection)
+            // The wheels report their actual angular velocity including any wheelspin
+            // So if wheels are spinning from throttle, RPM will naturally be higher
+            rpm = targetRpmFromWheels;
             
-            // Direct RPM calculation from wheel speed - this is how real cars work
-            // When you shift gears, RPM changes INSTANTLY because it's a mechanical connection
-            rpm = wheelRpm * Math.abs(gearRatio) * GameConstants.FINAL_DRIVE_RATIO;
+            // At very low wheel speeds with throttle, simulate clutch slip to prevent stalling
+            if (targetRpmFromWheels < GameConstants.IDLE_RPM && throttle > 0.1) {
+                // Clutch slipping - engine can rev independently
+                double slipRpm = GameConstants.IDLE_RPM + throttle * 2500;
+                rpm = Math.max(rpm, slipRpm);
+            }
             
-            // Engine can't go below idle when clutch is engaged (it would stall)
+            // Engine can't go below idle when clutch is engaged
             if (rpm < GameConstants.IDLE_RPM) {
                 rpm = GameConstants.IDLE_RPM;
             }
         } else {
             // Neutral or clutch disengaged - RPM based on throttle (can rev freely)
-            double targetRpm = GameConstants.IDLE_RPM + throttle * (GameConstants.REDLINE_RPM - GameConstants.IDLE_RPM) * 0.8;
-            double rpmChangeRate = 15000 * dt; // Fast rev response when not connected to wheels
+            double targetRpm = GameConstants.IDLE_RPM + throttle * (GameConstants.REDLINE_RPM - GameConstants.IDLE_RPM) * 0.85;
+            double rpmChangeRate = 12000 * dt; // Fast rev response when not connected
             rpm = MathUtils.approach(rpm, targetRpm, rpmChangeRate);
         }
         
+        // Re-engage clutch smoothly after shift
+        if (clutch < 1.0) {
+            clutch = MathUtils.approach(clutch, 1.0, 3.0 * dt);
+        }
+        
         // Detect bogging - RPM near idle while trying to accelerate in high gear
-        double bogThreshold = GameConstants.IDLE_RPM + 500; // Just above idle
-        if (rpm < bogThreshold && throttle > 0.3 && currentGear > 2) {
-            isBogging = true;
-            bogIntensity = (bogThreshold - rpm) / 500.0;
-            bogIntensity = MathUtils.clamp(bogIntensity, 0, 1);
+        // Made less sensitive to prevent rapid flickering of the indicator
+        double bogThreshold = GameConstants.IDLE_RPM + 300; // Closer to idle
+        if (rpm < bogThreshold && throttle > 0.5 && currentGear >= 4) {
+            // Smoothly increase bog intensity
+            double targetBog = (bogThreshold - rpm) / 300.0;
+            targetBog = MathUtils.clamp(targetBog, 0, 1);
+            bogIntensity = MathUtils.approach(bogIntensity, targetBog, dt * 3.0);
+            isBogging = bogIntensity > 0.3; // Only show indicator when significantly bogging
         } else {
-            isBogging = false;
-            bogIntensity = 0;
+            // Smoothly decrease bog intensity
+            bogIntensity = MathUtils.approach(bogIntensity, 0, dt * 5.0);
+            isBogging = bogIntensity > 0.3;
         }
         
         // Check rev limiter

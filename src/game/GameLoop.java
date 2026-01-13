@@ -8,6 +8,7 @@ import java.awt.*;
 import java.awt.event.*;
 import javax.swing.*;
 import scoring.DriftScoring;
+import ui.ShopPanel;
 import util.GameConstants;
 import world.CityWorld;
 
@@ -26,6 +27,12 @@ public class GameLoop extends JPanel implements Runnable {
     private InputHandler input;
     private DriftScoring scoring;
     private GameState gameState;
+    private Shop shop;
+    private ShopPanel shopPanel;
+    
+    // Shop notification message
+    private String shopMessage = "";
+    private double shopMessageTimer = 0;
     
     // Game loop
     private Thread gameThread;
@@ -48,6 +55,7 @@ public class GameLoop extends JPanel implements Runnable {
         setBackground(Color.BLACK);
         setDoubleBuffered(true);
         setFocusable(true);
+        setFocusTraversalKeysEnabled(false); // Allow TAB key to reach KeyListener
         
         // Initialize components
         initializeGame();
@@ -90,6 +98,11 @@ public class GameLoop extends JPanel implements Runnable {
         // Create scoring system
         scoring = new DriftScoring();
         
+        // Create shop
+        shop = new Shop();
+        shop.setPlayerMoney(1000); // Starting money
+        shopPanel = new ShopPanel(shop);
+        
         // Create game state
         gameState = new GameState();
     }
@@ -101,6 +114,9 @@ public class GameLoop extends JPanel implements Runnable {
         if (gameThread == null || !running) {
             // Recreate render buffer with actual screen size
             renderer.createRenderBuffer();
+            
+            // Request focus for keyboard input
+            requestFocusInWindow();
             
             running = true;
             gameThread = new Thread(this);
@@ -178,6 +194,56 @@ public class GameLoop extends JPanel implements Runnable {
         // Update input (processes key states into smooth values)
         input.update(dt);
         
+        // Update shop message timer
+        if (shopMessageTimer > 0) {
+            shopMessageTimer -= dt;
+            if (shopMessageTimer <= 0) {
+                shopMessage = "";
+            }
+        }
+        
+        // Handle shop toggle (TAB key)
+        if (input.isShopPressed()) {
+            shopPanel.toggle();
+            if (shopPanel.isVisible()) {
+                gameState.pause();
+            } else {
+                gameState.resume();
+                applyShopUpgrades(); // Apply upgrades when closing shop
+            }
+        }
+        
+        // Handle shop navigation when open
+        if (shopPanel.isVisible()) {
+            // ESC closes shop instead of pausing game
+            if (input.isPausePressed()) {
+                shopPanel.hide();
+                gameState.resume();
+                applyShopUpgrades();
+                input.consumeOneShots();
+                return;
+            }
+            if (input.isShopNextCategory()) {
+                shopPanel.nextCategory();
+            }
+            if (input.isShopPrevCategory()) {
+                shopPanel.prevCategory();
+            }
+            if (input.isShopSelectNext()) {
+                shopPanel.selectNext();
+            }
+            if (input.isShopSelectPrev()) {
+                shopPanel.selectPrev();
+            }
+            if (input.isShopConfirm()) {
+                shopMessage = shopPanel.confirmSelection();
+                shopMessageTimer = 2.0;
+                applyShopUpgrades();
+            }
+            input.consumeOneShots();
+            return; // Don't update game when shop is open
+        }
+        
         // Handle pause
         if (input.isPausePressed()) {
             gameState.togglePause();
@@ -228,6 +294,12 @@ public class GameLoop extends JPanel implements Runnable {
             dt
         );
         
+        // Award money when drift ends (points get banked)
+        int earnedMoney = scoring.getLastBankedPoints() / 10; // 10 points = $1
+        if (earnedMoney > 0) {
+            shop.addMoney(earnedMoney);
+        }
+        
         // Update particles
         particles.update(dt);
         
@@ -264,11 +336,38 @@ public class GameLoop extends JPanel implements Runnable {
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
         
-        // Render game
-        renderer.render(g, world, car, scoring);
+        // Render game with shop panel (rendered at pixel art resolution)
+        renderer.render(g, world, car, scoring, shopPanel);
         
-        // Draw pause overlay if paused
-        if (gameState.isPaused()) {
+        // Draw money display (only when shop is closed)
+        if (!shopPanel.isVisible()) {
+            g.setColor(new Color(100, 255, 100));
+            g.setFont(new Font("Monospaced", Font.BOLD, 16));
+            g.drawString("$" + String.format("%,d", shop.getPlayerMoney()), 10, 25);
+            g.setFont(new Font("Monospaced", Font.PLAIN, 11));
+            g.setColor(new Color(180, 180, 180));
+            g.drawString("[TAB] Shop", 10, 40);
+        }
+        
+        // Draw shop message
+        if (!shopMessage.isEmpty()) {
+            g.setFont(new Font("Monospaced", Font.BOLD, 18));
+            FontMetrics fm = g.getFontMetrics();
+            int msgWidth = fm.stringWidth(shopMessage);
+            int msgX = (GameConstants.WINDOW_WIDTH - msgWidth) / 2;
+            int msgY = GameConstants.WINDOW_HEIGHT - 100;
+            
+            // Background
+            g.setColor(new Color(0, 0, 0, 180));
+            g.fillRoundRect(msgX - 15, msgY - 20, msgWidth + 30, 35, 10, 10);
+            
+            // Text
+            g.setColor(shopMessage.contains("Not enough") ? new Color(255, 80, 80) : new Color(100, 255, 100));
+            g.drawString(shopMessage, msgX, msgY);
+        }
+        
+        // Draw pause overlay if paused (but not if shop is open)
+        if (gameState.isPaused() && !shopPanel.isVisible()) {
             drawPauseOverlay(g);
         }
         
@@ -321,5 +420,19 @@ public class GameLoop extends JPanel implements Runnable {
         if (renderer != null) {
             renderer.dispose();
         }
+    }
+    
+    /**
+     * Apply shop upgrades to car physics
+     */
+    private void applyShopUpgrades() {
+        double steering = shop.getModifier(ShopItem.Category.STEERING);
+        double power = shop.getModifier(ShopItem.Category.ENGINE);
+        double grip = shop.getModifier(ShopItem.Category.TIRES);
+        double handling = shop.getModifier(ShopItem.Category.SUSPENSION);
+        double weight = shop.getModifier(ShopItem.Category.WEIGHT);
+        double tireDur = shop.getTireDurability();
+        
+        car.getPhysics().applyUpgrades(steering, power, grip, handling, weight, tireDur);
     }
 }

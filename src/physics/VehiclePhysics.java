@@ -45,6 +45,14 @@ public class VehiclePhysics {
     private double frontWeight;     // Percentage on front
     private double rearWeight;      // Percentage on rear
     
+    // Upgrade modifiers (set by shop)
+    private double steeringModifier = 1.0;
+    private double powerModifier = 1.0;
+    private double gripModifier = 1.0;
+    private double handlingModifier = 1.0;
+    private double weightModifier = 1.0;
+    private double tireDurability = 1.0;
+    
     public VehiclePhysics(double startX, double startY) {
         this.position = new Vector2D(startX, startY);
         this.rotation = 0;
@@ -98,7 +106,8 @@ public class VehiclePhysics {
         double lateralSpeed = velocity.dot(right);
         
         // Update each tire and accumulate forces
-        double driveForce = engine.getDriveForce() / 2; // Split between rear wheels
+        // Apply power modifier from upgrades
+        double driveForce = (engine.getDriveForce() * powerModifier) / 2; // Split between rear wheels
         
         for (int i = 0; i < tires.length; i++) {
             Tire tire = tires[i];
@@ -222,8 +231,9 @@ public class VehiclePhysics {
             totalForce = totalForce.add(engineBrakingForce);
         }
         
-        // Apply forces (F = ma)
-        Vector2D acceleration = totalForce.divide(GameConstants.CAR_MASS);
+        // Apply forces (F = ma) - weight modifier affects acceleration
+        double effectiveMass = GameConstants.CAR_MASS * weightModifier;
+        Vector2D acceleration = totalForce.divide(effectiveMass);
         velocity = velocity.add(acceleration.multiply(dt));
         
         // Force car to stop at very low speeds when no throttle (prevents drifting at crawl speed)
@@ -232,7 +242,7 @@ public class VehiclePhysics {
         }
         
         // Apply rotation (simplified moment of inertia)
-        double momentOfInertia = GameConstants.CAR_MASS * GameConstants.CAR_LENGTH * 
+        double momentOfInertia = effectiveMass * GameConstants.CAR_LENGTH * 
                                  GameConstants.CAR_LENGTH / 12;
         double angularAccel = totalTorque / momentOfInertia;
         angularVelocity += angularAccel * dt;
@@ -272,7 +282,9 @@ public class VehiclePhysics {
      * Smooth steering input to angle
      */
     private void updateSteering(double dt) {
-        double targetAngle = steeringInput * MathUtils.toRadians(GameConstants.MAX_STEERING_ANGLE);
+        // Apply steering modifier from upgrades
+        double maxAngle = GameConstants.MAX_STEERING_ANGLE * steeringModifier;
+        double targetAngle = steeringInput * MathUtils.toRadians(maxAngle);
         
         // Speed-dependent steering reduction (less aggressive for better control)
         double speedFactor = 1.0 - MathUtils.clamp(speed / 80, 0, 0.5);
@@ -426,5 +438,52 @@ public class VehiclePhysics {
      */
     public double getRearSlip() {
         return (Math.abs(tires[2].getSlipRatio()) + Math.abs(tires[3].getSlipRatio())) / 2;
+    }
+    
+    // Modifier setters for shop upgrades
+    public void setSteeringModifier(double mod) { this.steeringModifier = mod; }
+    public void setPowerModifier(double mod) { this.powerModifier = mod; }
+    public void setGripModifier(double mod) { this.gripModifier = mod; }
+    public void setHandlingModifier(double mod) { this.handlingModifier = mod; }
+    public void setWeightModifier(double mod) { this.weightModifier = mod; }
+    public void setTireDurability(double dur) { this.tireDurability = dur; }
+    
+    // Modifier getters
+    public double getSteeringModifier() { return steeringModifier; }
+    public double getPowerModifier() { return powerModifier; }
+    public double getGripModifier() { return gripModifier; }
+    public double getHandlingModifier() { return handlingModifier; }
+    public double getWeightModifier() { return weightModifier; }
+    public double getTireDurability() { return tireDurability; }
+    
+    /**
+     * Apply grip and durability modifiers to all tires
+     */
+    public void applyTireModifiers(double grip, double durability) {
+        this.gripModifier = grip;
+        this.tireDurability = durability;
+        for (Tire tire : tires) {
+            tire.setGripModifier(grip);
+            tire.setDurabilityModifier(durability);
+        }
+    }
+    
+    /**
+     * Apply all shop upgrades at once
+     */
+    public void applyUpgrades(double steering, double power, double grip, 
+                              double handling, double weight, double tireDur) {
+        this.steeringModifier = steering;
+        this.powerModifier = power;
+        this.gripModifier = grip;
+        this.handlingModifier = handling;
+        this.weightModifier = weight;
+        this.tireDurability = tireDur;
+        
+        // Apply to tires
+        for (Tire tire : tires) {
+            tire.setGripModifier(grip);
+            tire.setDurabilityModifier(tireDur);
+        }
     }
 }

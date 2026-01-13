@@ -94,4 +94,24 @@ public class GameState {
     public double getSessionDistance() { return sessionDistance; }
     
     public boolean isPlaying() { return currentState == State.PLAYING && !isPaused; }
+    
+    /**
+     * Pause the game (for shop, menus, etc.)
+     */
+    public void pause() {
+        if (currentState == State.PLAYING) {
+            isPaused = true;
+            currentState = State.PAUSED;
+        }
+    }
+    
+    /**
+     * Resume the game from pause
+     */
+    public void resume() {
+        if (currentState == State.PAUSED) {
+            isPaused = false;
+            currentState = State.PLAYING;
+        }
+    }
 }
