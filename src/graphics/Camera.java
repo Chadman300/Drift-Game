@@ -29,8 +29,9 @@ public class Camera {
     private double targetZoom;     // Target zoom based on speed
     
     // Speed-based FOV - noticeable but smooth zoom changes
-    private static final double MIN_ZOOM = 3.5;    // Zoomed out at high speed
-    private static final double MAX_ZOOM = 5.5;    // Zoomed in at low speed
+    // Note: Values scaled for 3x render scale
+    private static final double MIN_ZOOM = 5.0;    // Zoomed out at high speed
+    private static final double MAX_ZOOM = 7.5;    // Zoomed in at low speed
     private static final double ZOOM_SPEED = 3.0;  // Faster zoom transitions
     
     // Shake effect

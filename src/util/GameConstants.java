@@ -13,7 +13,7 @@ public class GameConstants {
     public static final double DELTA_TIME = 1.0 / TARGET_FPS;
     
     // ============== PIXEL ART SCALING ==============
-    public static final int PIXEL_SCALE = 4;  // Upscale factor for retro look
+    public static final int PIXEL_SCALE = 3;  // Upscale factor (3 = nice pixelated look)
     public static int RENDER_WIDTH = WINDOW_WIDTH / PIXEL_SCALE;
     public static int RENDER_HEIGHT = WINDOW_HEIGHT / PIXEL_SCALE;
     

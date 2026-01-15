@@ -1,10 +1,9 @@
 package world;
 
-import util.GameConstants;
-import util.Vector2D;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import util.GameConstants;
 
 /**
  * Represents the city environment

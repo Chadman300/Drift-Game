@@ -428,15 +428,20 @@ public class Renderer {
                     new Color(0xFFE66D) : new Color(0x87CEEB); // Yellow or blue windows
                 Color windowOff = new Color(0x1A1A2E);
                 
-                int windowSpacing = Math.max(3, sw / 6);
-                int windowSize = Math.max(1, windowSpacing / 2);
+                int windowSpacing = Math.max(4, sw / 5);
+                int windowSize = Math.max(2, windowSpacing / 2);
                 
-                for (int wx = sx + 2; wx < sx + sw - windowSize; wx += windowSpacing) {
-                    for (int wy = sy + 2; wy < sy + sh - windowSize; wy += windowSpacing) {
-                        // Use building position to seed random for consistent windows
-                        boolean isLit = ((wx + wy + (int)building.getX()) % 3) != 0;
+                // Use world-space grid to prevent flickering when camera moves
+                int windowIdx = 0;
+                int buildingSeed = (int)(building.getX() * 7 + building.getY() * 13);
+                
+                for (int wx = sx + 3; wx < sx + sw - windowSize - 1; wx += windowSpacing) {
+                    for (int wy = sy + 3; wy < sy + sh - windowSize - 1; wy += windowSpacing) {
+                        // Deterministic pattern based on building position and window index
+                        boolean isLit = ((buildingSeed + windowIdx) % 3) != 0;
                         bufferGraphics.setColor(isLit ? windowColor : windowOff);
                         bufferGraphics.fillRect(wx, wy, windowSize, windowSize);
+                        windowIdx++;
                     }
                 }
             }
@@ -467,7 +472,7 @@ public class Renderer {
             switch (p.type) {
                 case SMOKE:
                     // Realistic gray-white smoke that fades
-                    int smokeGray = 180 + (int)(Math.random() * 40);
+                    int smokeGray = Math.min(255, 180 + (int)(Math.random() * 40));
                     bufferGraphics.setColor(new Color(smokeGray, smokeGray, smokeGray, alpha));
                     bufferGraphics.fillOval(sx - size/2, sy - size/2, size, size);
                     // Softer inner core
@@ -493,8 +498,8 @@ public class Renderer {
                     // Hot flame colors - orange/yellow core with red edges
                     float lifeRatio = (float)(p.lifetime / p.maxLifetime);
                     int r = 255;
-                    int g = (int)(150 + lifeRatio * 100); // Yellower when fresh
-                    int b = (int)(50 * lifeRatio);
+                    int g = Math.min(255, (int)(150 + lifeRatio * 100)); // Yellower when fresh
+                    int b = Math.min(255, (int)(50 * lifeRatio));
                     bufferGraphics.setColor(new Color(r, g, b, Math.min(255, alpha + 55)));
                     bufferGraphics.fillOval(sx - size/2, sy - size/2, size, size);
                     // Bright white-yellow core
@@ -671,28 +676,28 @@ public class Renderer {
         bufferGraphics.drawLine(0, hudBarY, GameConstants.RENDER_WIDTH, hudBarY);
         
         // ====== LEFT SECTION: RPM GAUGE + GEAR ======
-        int gaugeX = 50;
+        int gaugeX = 60;
         int gaugeY = hudBarY + hudBarHeight/2 + 5;
         drawRPMGauge(physics.getEngine(), gaugeX, gaugeY);
         
         // Gear display - left of gauge
-        bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 22));
+        bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 16));
         int gear = physics.getEngine().getCurrentGear();
         String gearText = gear == 0 ? "N" : (gear == -1 ? "R" : String.valueOf(gear));
-        drawHUDText(gearText, gaugeX - 35, gaugeY + 8, new Color(0x4ECDC4));
+        drawHUDText(gearText, gaugeX - 28, gaugeY + 6, new Color(0x4ECDC4));
         
         // ====== CENTER SECTION: SPEED ======
-        bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 28));
+        bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 20));
         int speed = (int) physics.getSpeedMph();
         String speedText = String.format("%d", speed);
         int speedTextWidth = bufferGraphics.getFontMetrics().stringWidth(speedText);
         int speedX = GameConstants.RENDER_WIDTH/2 - speedTextWidth/2;
         drawHUDText(speedText, speedX, gaugeY + 5, Color.WHITE);
-        bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 10));
-        drawHUDText("MPH", speedX + speedTextWidth + 5, gaugeY + 3, Color.GRAY);
+        bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 8));
+        drawHUDText("MPH", speedX + speedTextWidth + 4, gaugeY + 3, Color.GRAY);
         
         // ====== RIGHT SECTION: TIRE INFO ======
-        bufferGraphics.setFont(new Font("Monospaced", Font.PLAIN, 10));
+        bufferGraphics.setFont(new Font("Monospaced", Font.PLAIN, 8));
         Tire[] tires = physics.getTires();
         double avgTemp = 0;
         double avgGrip = 0;
@@ -705,75 +710,75 @@ public class Renderer {
         
         String tireTemp = String.format("TIRE: %.0f°C", avgTemp);
         String tireGrip = String.format("GRIP: %.0f%%", avgGrip * 100);
-        drawHUDText(tireTemp, GameConstants.RENDER_WIDTH - 80, gaugeY - 5, Color.GRAY);
-        drawHUDText(tireGrip, GameConstants.RENDER_WIDTH - 80, gaugeY + 8, 
+        drawHUDText(tireTemp, GameConstants.RENDER_WIDTH - 60, gaugeY - 5, Color.GRAY);
+        drawHUDText(tireGrip, GameConstants.RENDER_WIDTH - 60, gaugeY + 6, 
                     avgGrip < 0.7 ? new Color(0xE94560) : Color.GRAY);
         
         // Handbrake indicator (in HUD bar)
         if (physics.isHandbrakeActive()) {
-            bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 10));
-            drawHUDText("[HB]", GameConstants.RENDER_WIDTH - 80, gaugeY + 20, new Color(0xFF6B6B));
+            bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 8));
+            drawHUDText("[HB]", GameConstants.RENDER_WIDTH - 60, gaugeY + 16, new Color(0xFF6B6B));
         }
         
         // Wheelspin indicator (in HUD bar, center)
-        bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 12));
+        bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 10));
         if (physics.isWheelspinning()) {
-            drawHUDText("!! WHEELSPIN !!", GameConstants.RENDER_WIDTH/2 - 50, 
-                        gaugeY + 18, new Color(0xE94560));
+            drawHUDText("!! WHEELSPIN !!", GameConstants.RENDER_WIDTH/2 - 40, 
+                        gaugeY + 16, new Color(0xE94560));
         }
         
         // Understeer indicator - front tires losing grip (pushing wide)
         if (physics.isUndersteering()) {
-            drawHUDText("!! UNDERSTEER !!", GameConstants.RENDER_WIDTH/2 - 55, 
+            drawHUDText("!! UNDERSTEER !!", GameConstants.RENDER_WIDTH/2 - 42, 
                         gaugeY + 5, new Color(0xFCBF49)); // Orange/yellow color
         }
         
         // Oversteer indicator - rear tires sliding out (drifting!)
         if (physics.isOversteering() && !physics.isDrifting()) {
             // Show when rear is sliding but not in full scored drift yet
-            drawHUDText(">> OVERSTEER <<", GameConstants.RENDER_WIDTH/2 - 52, 
+            drawHUDText(">> OVERSTEER <<", GameConstants.RENDER_WIDTH/2 - 40, 
                         gaugeY + 5, new Color(0x4ECDC4)); // Cyan color
         }
         
         // Bogging indicator (engine struggling in too high a gear)
         if (physics.getEngine().isBogging()) {
-            bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 12));
+            bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 10));
             // Flash red when bogging badly
-            int bogAlpha = (int)(150 + 105 * physics.getEngine().getBogIntensity());
-            drawHUDText("!! SHIFT DOWN !!", GameConstants.RENDER_WIDTH/2 - 55, 
-                        gaugeY - 15, new Color(255, 100, 50, bogAlpha));
+            int bogAlpha = Math.min(255, (int)(150 + 105 * physics.getEngine().getBogIntensity()));
+            drawHUDText("!! SHIFT DOWN !!", GameConstants.RENDER_WIDTH/2 - 42, 
+                        gaugeY - 12, new Color(255, 100, 50, bogAlpha));
         }
         
         // Rev limiter indicator
         if (physics.getEngine().isRevLimiterActive()) {
-            bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 12));
-            drawHUDText("!! REV LIMIT !!", GameConstants.RENDER_WIDTH/2 - 50, 
-                        gaugeY - 15, new Color(255, 50, 50));
+            bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 10));
+            drawHUDText("!! REV LIMIT !!", GameConstants.RENDER_WIDTH/2 - 38, 
+                        gaugeY - 12, new Color(255, 50, 50));
         }
         
         // ====== TOP AREA: SCORES AND DRIFT INFO ======
         
         // Total score - top right
-        bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 14));
+        bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 12));
         String totalScore = String.format("SCORE: %,d", scoring.getTotalScore());
-        drawHUDText(totalScore, GameConstants.RENDER_WIDTH - 120, 18, Color.WHITE);
+        drawHUDText(totalScore, GameConstants.RENDER_WIDTH - 95, 15, Color.WHITE);
         
         // Combo multiplier - below total score
-        bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 16));
+        bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 14));
         if (scoring.getComboMultiplier() > 1) {
             String comboText = "x" + scoring.getComboMultiplier();
-            drawHUDText(comboText, GameConstants.RENDER_WIDTH - 60, 38, new Color(0x4ECDC4));
+            drawHUDText(comboText, GameConstants.RENDER_WIDTH - 50, 30, new Color(0x4ECDC4));
             
             // Combo timer bar
-            int barWidth = 50;
-            int barX = GameConstants.RENDER_WIDTH - 60;
-            int barY = 45;
+            int barWidth = 40;
+            int barX = GameConstants.RENDER_WIDTH - 50;
+            int barY = 36;
             int filledWidth = (int)(barWidth * scoring.getComboTimerPercentage());
             
             bufferGraphics.setColor(new Color(0x2D3436));
-            bufferGraphics.fillRect(barX, barY, barWidth, 4);
+            bufferGraphics.fillRect(barX, barY, barWidth, 3);
             bufferGraphics.setColor(new Color(0x4ECDC4));
-            bufferGraphics.fillRect(barX, barY, filledWidth, 4);
+            bufferGraphics.fillRect(barX, barY, filledWidth, 3);
         }
         
         // Drift score - top center (only when drifting)
@@ -782,26 +787,26 @@ public class Renderer {
             String grade = scoring.getDriftGrade();
             
             // Grade
-            bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 20));
+            bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 16));
             int gradeWidth = bufferGraphics.getFontMetrics().stringWidth(grade);
-            drawHUDText(grade, GameConstants.RENDER_WIDTH/2 - gradeWidth/2, 35, new Color(0xFFE66D));
+            drawHUDText(grade, GameConstants.RENDER_WIDTH/2 - gradeWidth/2, 28, new Color(0xFFE66D));
             
             // Score
-            bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 18));
+            bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 14));
             int scoreWidth = bufferGraphics.getFontMetrics().stringWidth(driftScore);
-            drawHUDText(driftScore, GameConstants.RENDER_WIDTH/2 - scoreWidth/2, 58, Color.WHITE);
+            drawHUDText(driftScore, GameConstants.RENDER_WIDTH/2 - scoreWidth/2, 45, Color.WHITE);
             
             // Drift angle
-            bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 14));
+            bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 12));
             String angleText = String.format("%.0f°", Math.abs(scoring.getCurrentDriftAngle()));
             int angleWidth = bufferGraphics.getFontMetrics().stringWidth(angleText);
-            drawHUDText(angleText, GameConstants.RENDER_WIDTH/2 - angleWidth/2, 75, new Color(0xE94560));
+            drawHUDText(angleText, GameConstants.RENDER_WIDTH/2 - angleWidth/2, 58, new Color(0xE94560));
         }
         
         // Controls hint - top left (faded)
-        bufferGraphics.setFont(new Font("Monospaced", Font.PLAIN, 8));
+        bufferGraphics.setFont(new Font("Monospaced", Font.PLAIN, 6));
         drawHUDText("WASD: Drive  SPACE: Handbrake  E/Q: Shift  ESC: Exit", 
-                   10, 12, new Color(80, 80, 80));
+                   8, 10, new Color(80, 80, 80));
     }
     
     /**
