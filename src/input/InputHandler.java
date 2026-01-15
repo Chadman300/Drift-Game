@@ -24,6 +24,7 @@ public class InputHandler implements KeyListener {
     private boolean shiftDown;
     private boolean pause;
     private boolean reset;
+    private boolean clutchKick; // For drift initiation
     
     // Shop inputs
     private boolean shopToggle;
@@ -80,6 +81,7 @@ public class InputHandler implements KeyListener {
         shiftDown = false;
         pause = false;
         reset = false;
+        clutchKick = false;
         shopToggle = false;
         shopNextCat = false;
         shopPrevCat = false;
@@ -165,6 +167,10 @@ public class InputHandler implements KeyListener {
             if (key == KeyEvent.VK_R) {
                 reset = true;
             }
+            // Clutch kick for drift initiation (C key or Left Alt)
+            if (key == KeyEvent.VK_C || key == KeyEvent.VK_ALT) {
+                clutchKick = true;
+            }
             // Shop controls
             if (key == KeyEvent.VK_TAB) {
                 shopToggle = true;
@@ -223,6 +229,7 @@ public class InputHandler implements KeyListener {
     public boolean isShiftDownPressed() { return shiftDown; }
     public boolean isPausePressed() { return pause; }
     public boolean isResetPressed() { return reset; }
+    public boolean isClutchKickPressed() { return clutchKick; }
     
     // Shop input getters
     public boolean isShopPressed() { return shopToggle; }

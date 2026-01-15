@@ -24,7 +24,14 @@ public class Camera {
     private double targetX, targetY; // Target position
     private double rotation;       // Camera rotation (follows car)
     private double targetRotation;
-    private double zoom;           // Pixels per meter
+    private double zoom;           // Pixels per meter (current)
+    private double baseZoom;       // Base zoom level
+    private double targetZoom;     // Target zoom based on speed
+    
+    // Speed-based FOV - noticeable but smooth zoom changes
+    private static final double MIN_ZOOM = 3.5;    // Zoomed out at high speed
+    private static final double MAX_ZOOM = 5.5;    // Zoomed in at low speed
+    private static final double ZOOM_SPEED = 3.0;  // Faster zoom transitions
     
     // Shake effect
     private double shakeIntensity;
@@ -44,7 +51,9 @@ public class Camera {
         this.targetY = 0;
         this.rotation = 0;
         this.targetRotation = 0;
-        this.zoom = GameConstants.CAMERA_ZOOM;
+        this.baseZoom = GameConstants.CAMERA_ZOOM;
+        this.zoom = MAX_ZOOM;
+        this.targetZoom = MAX_ZOOM;
         this.shakeIntensity = 0;
         this.shakeTimer = 0;
     }
@@ -106,6 +115,24 @@ public class Camera {
         while (rotDiff > Math.PI) rotDiff -= 2 * Math.PI;
         while (rotDiff < -Math.PI) rotDiff += 2 * Math.PI;
         rotation += rotDiff * rotSpeed * 60 * dt;
+        
+        // SPEED-BASED FOV (ZOOM)
+        // Zoom out as speed increases for sense of speed
+        double speedMph = speed * 2.237; // Convert to mph
+        double speedFactor = Math.min(speedMph / 80.0, 1.0); // Max effect at 80mph
+        targetZoom = MAX_ZOOM - (MAX_ZOOM - MIN_ZOOM) * speedFactor;
+        
+        // Extra zoom out when drifting for dramatic effect
+        if (isDrifting) {
+            double driftZoomOut = Math.min(Math.abs(driftAngle) / 60.0, 0.4);
+            targetZoom -= driftZoomOut;
+        }
+        
+        // Clamp target zoom
+        targetZoom = Math.max(MIN_ZOOM - 0.5, Math.min(MAX_ZOOM, targetZoom));
+        
+        // Smoothly interpolate to target zoom
+        zoom += (targetZoom - zoom) * ZOOM_SPEED * dt;
         
         // Update shake
         if (shakeTimer > 0) {

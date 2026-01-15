@@ -43,6 +43,9 @@ public class Tire {
     private double gripModifier = 1.0;
     private double durabilityModifier = 1.0;
     
+    // Drift-specific grip reduction (set by VehiclePhysics during drift)
+    private double driftGripMultiplier = 1.0;
+    
     public Tire(Position position) {
         this.position = position;
         this.pressure = GameConstants.OPTIMAL_TIRE_PRESSURE;
@@ -127,7 +130,8 @@ public class Tire {
         double wearFactor = 1.0 - effectiveWear * 0.4;
         wearFactor = MathUtils.clamp(wearFactor, 0.3, 1.0);
         
-        grip = baseGrip * tempFactor * pressureFactor * wearFactor;
+        // Apply drift grip multiplier (rear tires lose grip during oversteer/drift)
+        grip = baseGrip * tempFactor * pressureFactor * wearFactor * driftGripMultiplier;
     }
     
     /**
@@ -172,11 +176,13 @@ public class Tire {
             double spinFactor = (driveForce - 500) / 3000.0; // 0 to 1+ based on power
             spinFactor = MathUtils.clamp(spinFactor, 0, 1.5);
             slipVelocity = spinFactor * maxSlipSpeed;
-        } else if (brakeForce > 500) {
+        } else if (brakeForce > 1500) {
             // Lockup - wheels slower than ground
-            double lockFactor = (brakeForce - 500) / 3000.0;
-            lockFactor = MathUtils.clamp(lockFactor, 0, 1);
-            slipVelocity = -lockFactor * maxSlipSpeed * 0.8;
+            // Higher threshold (1500 vs 500) makes lockup harder
+            // Lower lock factor makes lockup less severe
+            double lockFactor = (brakeForce - 1500) / 6000.0; // More gradual
+            lockFactor = MathUtils.clamp(lockFactor, 0, 0.7); // Max 70% lockup
+            slipVelocity = -lockFactor * maxSlipSpeed * 0.5; // Less severe
         }
         
         // Set wheel angular velocity: ground speed + wheelspin
@@ -200,7 +206,8 @@ public class Tire {
         
         // Detect wheelspin and lockup - only when there's significant slip AND throttle/brake
         isSpinning = slipRatio > GameConstants.SLIP_RATIO_THRESHOLD && driveForce > 100;
-        isLocked = slipRatio < -GameConstants.SLIP_RATIO_THRESHOLD && brakeForce > 100;
+        // Higher threshold for lockup detection - brakes work better before locking
+        isLocked = slipRatio < -0.25 && brakeForce > 500; // Was -0.12, now -0.25
         isSlipping = isSpinning || isLocked;
     }
     
@@ -223,12 +230,15 @@ public class Tire {
     
     /**
      * Calculate tire forces using simplified Pacejka model
+     * 
+     * DRIFT PHYSICS: When driftGripMultiplier is low (rear sliding),
+     * lateral force drops dramatically, allowing the rear to swing out.
      */
     private void calculateForces() {
         // Pacejka Magic Formula parameters (simplified)
         double B = 10;  // Stiffness factor
         double C = 1.9; // Shape factor
-        double D = grip * normalForce; // Peak value
+        double D = grip * normalForce; // Peak value (grip already includes driftGripMultiplier!)
         double E = 0.97; // Curvature factor
         
         // Longitudinal force from slip ratio
@@ -236,30 +246,42 @@ public class Tire {
         longitudinalForce = D * Math.sin(C * Math.atan(B * slipRatioRad - 
                             E * (B * slipRatioRad - Math.atan(B * slipRatioRad))));
         
-        // Lateral force from slip angle
+        // Lateral force from slip angle - THIS IS KEY FOR DRIFTING
+        // When rear tires lose grip, lateral force drops, rear swings out
         double slipAngleRad = MathUtils.toRadians(slipAngle);
-        lateralForce = D * Math.sin(C * Math.atan(B * slipAngleRad - 
+        double rawLateralForce = D * Math.sin(C * Math.atan(B * slipAngleRad - 
                        E * (B * slipAngleRad - Math.atan(B * slipAngleRad))));
         
+        // DRIFT ENHANCEMENT: Apply extra lateral force reduction for rear tires during slide
+        // When driftGripMultiplier is low, lateral force should REALLY drop
+        // The grip variable already includes driftGripMultiplier, but we need more reduction
+        // for proper rear swing-out behavior
+        double lateralReduction = 1.0;
+        if (isRear() && driftGripMultiplier < 0.8) {
+            // Extra reduction for rear tires that are sliding
+            // This makes the rear actually swing out instead of just scrubbing
+            lateralReduction = 0.3 + 0.7 * (driftGripMultiplier / 0.8);
+        }
+        
+        lateralForce = rawLateralForce * lateralReduction;
+        
         // Friction circle - but less aggressive so you can accelerate while turning
-        // Only reduce longitudinal force significantly when sliding very hard
         double totalSlip = Math.sqrt(slipRatio * slipRatio + 
                            Math.pow(slipAngle / 90, 2));
         if (totalSlip > 1.5) {
-            // Only reduce above threshold, and less aggressively
             double reduction = 1.5 / totalSlip;
-            reduction = Math.max(reduction, 0.5); // Never reduce below 50%
+            reduction = Math.max(reduction, 0.5);
             longitudinalForce *= reduction;
             lateralForce *= reduction;
         }
         
-        // Apply grip falloff when sliding heavily - but preserve more longitudinal force
+        // Apply grip falloff when sliding heavily
         if (Math.abs(slipAngle) > GameConstants.SLIP_ANGLE_DRIFT) {
             double falloff = 1.0 - GameConstants.TIRE_GRIP_FALLOFF * 
                             (Math.abs(slipAngle) - GameConstants.SLIP_ANGLE_DRIFT) / 60;
-            falloff = MathUtils.clamp(falloff, 0.5, 1.0);
+            falloff = MathUtils.clamp(falloff, 0.4, 1.0);
             lateralForce *= falloff;
-            // Preserve most of longitudinal force during drifts
+            // Preserve most longitudinal force during drifts
             longitudinalForce *= (0.7 + 0.3 * falloff);
         }
     }
@@ -375,4 +397,8 @@ public class Tire {
     public double getGripModifier() { return gripModifier; }
     public double getDurabilityModifier() { return durabilityModifier; }
     public void resetWear() { this.wear = 0; }
+    
+    // Drift grip control - allows VehiclePhysics to reduce rear grip during oversteer
+    public void setDriftGripMultiplier(double mult) { this.driftGripMultiplier = MathUtils.clamp(mult, 0.1, 1.0); }
+    public double getDriftGripMultiplier() { return driftGripMultiplier; }
 }

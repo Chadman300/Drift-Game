@@ -10,7 +10,9 @@ import scoring.DriftScoring;
 import util.GameConstants;
 import world.Building;
 import world.CityWorld;
+import world.ParkingLot;
 import world.Road;
+import world.StreetLight;
 
 /**
  * Main rendering system for the game
@@ -89,13 +91,20 @@ public class Renderer {
         
         // Draw world layers
         drawRoads(world, bounds);
+        drawParkingLots(world, bounds);
         drawTireMarks();
         drawBuildings(world, bounds);
+        drawStreetLights(world, bounds);
         drawParticles();
         drawCar(car);
         
         // Draw HUD on top
         drawHUD(car, scoring);
+        
+        // Draw minimap (top-right corner, only when shop is closed)
+        if (shopPanel == null || !shopPanel.isVisible()) {
+            drawMinimap(world, car);
+        }
         
         // Draw shop panel if visible (at pixel art resolution)
         if (shopPanel != null && shopPanel.isVisible()) {
@@ -113,9 +122,14 @@ public class Renderer {
     }
     
     /**
-     * Draw all roads
+     * Draw all roads with improved visuals
      */
     private void drawRoads(CityWorld world, double[] bounds) {
+        // Road edge color (darker than road)
+        Color roadEdgeColor = new Color(0x1A1A1A);
+        Color sidewalkColor = new Color(0x4A4A50);
+        Color mainRoadColor = new Color(0x38383D);
+        
         for (Road road : world.getRoads()) {
             double[] roadBounds = road.getBounds();
             
@@ -125,29 +139,220 @@ public class Renderer {
                 continue;
             }
             
-            // Convert to screen coordinates
-            int sx = camera.worldToScreenX(roadBounds[0]);
-            int sy = camera.worldToScreenY(roadBounds[1]);
-            int sw = camera.scaleToScreen(roadBounds[2]);
-            int sh = camera.scaleToScreen(roadBounds[3]);
-            
-            // Draw road surface
+            if (road.isCurved()) {
+                drawCurvedRoad(road);
+            } else {
+                drawStraightRoad(road, roadBounds, roadEdgeColor, sidewalkColor, mainRoadColor);
+            }
+        }
+    }
+    
+    /**
+     * Draw a straight road with details
+     */
+    private void drawStraightRoad(Road road, double[] roadBounds, Color edgeColor, Color sidewalkColor, Color mainRoadColor) {
+        int sx = camera.worldToScreenX(roadBounds[0]);
+        int sy = camera.worldToScreenY(roadBounds[1]);
+        int sw = camera.scaleToScreen(roadBounds[2]);
+        int sh = camera.scaleToScreen(roadBounds[3]);
+        
+        // Sidewalk edge (slightly wider than road)
+        int edgeSize = Math.max(2, camera.scaleToScreen(3));
+        bufferGraphics.setColor(sidewalkColor);
+        if (road.isVertical()) {
+            bufferGraphics.fillRect(sx - edgeSize, sy, sw + edgeSize * 2, sh);
+        } else {
+            bufferGraphics.fillRect(sx, sy - edgeSize, sw, sh + edgeSize * 2);
+        }
+        
+        // Road surface - use different color for highways
+        if (road.getRoadType() == Road.RoadType.HIGHWAY) {
+            bufferGraphics.setColor(mainRoadColor);
+        } else {
             bufferGraphics.setColor(roadColor);
-            bufferGraphics.fillRect(sx, sy, sw, sh);
-            
-            // Draw road markings
+        }
+        bufferGraphics.fillRect(sx, sy, sw, sh);
+        
+        // Road edge lines
+        bufferGraphics.setColor(edgeColor);
+        if (road.isVertical()) {
+            bufferGraphics.drawLine(sx, sy, sx, sy + sh);
+            bufferGraphics.drawLine(sx + sw - 1, sy, sx + sw - 1, sy + sh);
+        } else {
+            bufferGraphics.drawLine(sx, sy, sx + sw, sy);
+            bufferGraphics.drawLine(sx, sy + sh - 1, sx + sw, sy + sh - 1);
+        }
+        
+        // Draw road markings
+        if (road.getRoadType() == Road.RoadType.HIGHWAY) {
+            // Double yellow line for highway
+            bufferGraphics.setColor(new Color(0xD4A017)); // Yellow
+            if (road.isVertical()) {
+                int centerX = sx + sw / 2;
+                bufferGraphics.drawLine(centerX - 1, sy, centerX - 1, sy + sh);
+                bufferGraphics.drawLine(centerX + 1, sy, centerX + 1, sy + sh);
+            } else {
+                int centerY = sy + sh / 2;
+                bufferGraphics.drawLine(sx, centerY - 1, sx + sw, centerY - 1);
+                bufferGraphics.drawLine(sx, centerY + 1, sx + sw, centerY + 1);
+            }
+        } else {
+            // Dashed center line for regular roads
             bufferGraphics.setColor(roadLineColor);
             if (road.isVertical()) {
                 int centerX = sx + sw / 2;
-                // Dashed center line
-                for (int y = sy; y < sy + sh; y += 8) {
-                    bufferGraphics.drawLine(centerX, y, centerX, y + 4);
+                for (int y = sy; y < sy + sh; y += 10) {
+                    bufferGraphics.drawLine(centerX, y, centerX, y + 5);
                 }
             } else {
                 int centerY = sy + sh / 2;
-                for (int x = sx; x < sx + sw; x += 8) {
-                    bufferGraphics.drawLine(x, centerY, x + 4, centerY);
+                for (int x = sx; x < sx + sw; x += 10) {
+                    bufferGraphics.drawLine(x, centerY, x + 5, centerY);
                 }
+            }
+        }
+        
+        // Lane markers for highways
+        if (road.getRoadType() == Road.RoadType.HIGHWAY && sw > 10) {
+            bufferGraphics.setColor(roadLineColor);
+            if (road.isVertical()) {
+                int lane1 = sx + sw / 4;
+                int lane2 = sx + 3 * sw / 4;
+                for (int y = sy; y < sy + sh; y += 12) {
+                    bufferGraphics.drawLine(lane1, y, lane1, y + 6);
+                    bufferGraphics.drawLine(lane2, y, lane2, y + 6);
+                }
+            } else {
+                int lane1 = sy + sh / 4;
+                int lane2 = sy + 3 * sh / 4;
+                for (int x = sx; x < sx + sw; x += 12) {
+                    bufferGraphics.drawLine(x, lane1, x + 6, lane1);
+                    bufferGraphics.drawLine(x, lane2, x + 6, lane2);
+                }
+            }
+        }
+    }
+    
+    /**
+     * Draw a curved road
+     */
+    private void drawCurvedRoad(Road road) {
+        java.util.List<double[]> points = road.getCurvePoints();
+        if (points == null || points.size() < 2) return;
+        
+        int halfWidth = camera.scaleToScreen(road.getWidth() / 2);
+        
+        // Draw road segments along the curve
+        for (int i = 0; i < points.size() - 1; i++) {
+            double[] p1 = points.get(i);
+            double[] p2 = points.get(i + 1);
+            
+            int x1 = camera.worldToScreenX(p1[0]);
+            int y1 = camera.worldToScreenY(p1[1]);
+            int x2 = camera.worldToScreenX(p2[0]);
+            int y2 = camera.worldToScreenY(p2[1]);
+            
+            // Draw thick line for road
+            java.awt.Graphics2D g2d = (java.awt.Graphics2D) bufferGraphics;
+            java.awt.Stroke oldStroke = g2d.getStroke();
+            
+            g2d.setStroke(new java.awt.BasicStroke(halfWidth * 2, java.awt.BasicStroke.CAP_ROUND, java.awt.BasicStroke.JOIN_ROUND));
+            g2d.setColor(roadColor);
+            g2d.drawLine(x1, y1, x2, y2);
+            
+            // Center line
+            g2d.setStroke(new java.awt.BasicStroke(1));
+            g2d.setColor(roadLineColor);
+            if (i % 2 == 0) { // Dashed
+                g2d.drawLine(x1, y1, x2, y2);
+            }
+            
+            g2d.setStroke(oldStroke);
+        }
+    }
+    
+    /**
+     * Draw parking lots
+     */
+    private void drawParkingLots(CityWorld world, double[] bounds) {
+        Color parkingColor = new Color(0x2D2D35);
+        Color lineColor = new Color(0x555560);
+        Color[] carColors = {
+            new Color(0xE74C3C), // Red
+            new Color(0x3498DB), // Blue
+            new Color(0x2ECC71), // Green
+            new Color(0xF1C40F), // Yellow
+            new Color(0x9B59B6), // Purple
+            new Color(0x1ABC9C)  // Teal
+        };
+        
+        for (ParkingLot lot : world.getParkingLots()) {
+            // Check bounds
+            if (lot.getX() + lot.getWidth() < bounds[0] || lot.getX() > bounds[2] ||
+                lot.getY() + lot.getHeight() < bounds[1] || lot.getY() > bounds[3]) {
+                continue;
+            }
+            
+            int lx = camera.worldToScreenX(lot.getX());
+            int ly = camera.worldToScreenY(lot.getY());
+            int lw = camera.scaleToScreen(lot.getWidth());
+            int lh = camera.scaleToScreen(lot.getHeight());
+            
+            // Draw parking lot surface
+            bufferGraphics.setColor(parkingColor);
+            bufferGraphics.fillRect(lx, ly, lw, lh);
+            
+            // Draw parking spaces
+            for (ParkingLot.ParkingSpace space : lot.getSpaces()) {
+                int spx = camera.worldToScreenX(space.x);
+                int spy = camera.worldToScreenY(space.y);
+                int spw = camera.scaleToScreen(space.width);
+                int sph = camera.scaleToScreen(space.height);
+                
+                // Parking line
+                bufferGraphics.setColor(lineColor);
+                bufferGraphics.drawRect(spx, spy, spw, sph);
+                
+                // Draw parked car if present
+                if (space.hasCar && spw > 4 && sph > 6) {
+                    int carMargin = 1;
+                    bufferGraphics.setColor(carColors[space.carColor % carColors.length]);
+                    bufferGraphics.fillRect(spx + carMargin, spy + carMargin, 
+                                           spw - carMargin * 2, sph - carMargin * 2);
+                    // Car roof
+                    bufferGraphics.setColor(new Color(0x1A1A2E));
+                    int roofMargin = spw / 4;
+                    bufferGraphics.fillRect(spx + roofMargin, spy + sph/3, 
+                                           spw - roofMargin * 2, sph/3);
+                }
+            }
+        }
+    }
+    
+    /**
+     * Draw street lights
+     */
+    private void drawStreetLights(CityWorld world, double[] bounds) {
+        Color poleColor = new Color(0x3D3D3D);
+        Color lightOnColor = new Color(0xFFF59D);
+        Color glowColor = new Color(255, 245, 157, 60);
+        
+        for (StreetLight light : world.getStreetLights()) {
+            if (!camera.isVisible(light.getX(), light.getY(), 20)) continue;
+            
+            int sx = camera.worldToScreenX(light.getX());
+            int sy = camera.worldToScreenY(light.getY());
+            
+            // Draw pole
+            bufferGraphics.setColor(poleColor);
+            bufferGraphics.fillRect(sx - 1, sy - 1, 3, 3);
+            
+            // Draw light glow if on
+            if (light.isOn()) {
+                bufferGraphics.setColor(glowColor);
+                bufferGraphics.fillOval(sx - 6, sy - 6, 12, 12);
+                bufferGraphics.setColor(lightOnColor);
+                bufferGraphics.fillOval(sx - 2, sy - 2, 4, 4);
             }
         }
     }
@@ -190,9 +395,10 @@ public class Renderer {
             int sw = camera.scaleToScreen(building.getWidth());
             int sh = camera.scaleToScreen(building.getHeight());
             
-            // Building shadow
-            bufferGraphics.setColor(new Color(0, 0, 0, 80));
-            bufferGraphics.fillRect(sx + 2, sy + 2, sw, sh);
+            // Building shadow (offset based on building height)
+            int shadowOffset = Math.max(2, building.getFloors() / 3);
+            bufferGraphics.setColor(new Color(0, 0, 0, 100));
+            bufferGraphics.fillRect(sx + shadowOffset, sy + shadowOffset, sw, sh);
             
             // Main building color
             int colorIdx = building.getColorIndex() % GameConstants.COLOR_PALETTE.length;
@@ -200,21 +406,45 @@ public class Renderer {
             bufferGraphics.setColor(buildingColor);
             bufferGraphics.fillRect(sx, sy, sw, sh);
             
-            // Building outline
-            bufferGraphics.setColor(buildingColor.darker());
+            // Building outline (thicker for taller buildings)
+            bufferGraphics.setColor(buildingColor.darker().darker());
             bufferGraphics.drawRect(sx, sy, sw - 1, sh - 1);
+            if (building.getFloors() > 8) {
+                bufferGraphics.drawRect(sx + 1, sy + 1, sw - 3, sh - 3);
+            }
+            
+            // Roof detail for tall buildings
+            if (building.getFloors() > 10 && sw > 12 && sh > 12) {
+                bufferGraphics.setColor(buildingColor.darker());
+                int roofMargin = sw / 5;
+                bufferGraphics.fillRect(sx + roofMargin, sy + roofMargin, 
+                                       sw - roofMargin * 2, sh - roofMargin * 2);
+            }
             
             // Windows (if building is large enough on screen)
-            if (sw > 8 && sh > 8) {
-                bufferGraphics.setColor(new Color(0xFFE66D, true)); // Yellow windows
-                int windowSpacing = 4;
-                for (int wx = sx + 2; wx < sx + sw - 2; wx += windowSpacing) {
-                    for (int wy = sy + 2; wy < sy + sh - 2; wy += windowSpacing) {
-                        if (Math.random() > 0.3) { // Some windows are lit
-                            bufferGraphics.fillRect(wx, wy, 2, 2);
-                        }
+            if (sw > 6 && sh > 6) {
+                // Window color varies by building
+                Color windowColor = (colorIdx % 2 == 0) ? 
+                    new Color(0xFFE66D) : new Color(0x87CEEB); // Yellow or blue windows
+                Color windowOff = new Color(0x1A1A2E);
+                
+                int windowSpacing = Math.max(3, sw / 6);
+                int windowSize = Math.max(1, windowSpacing / 2);
+                
+                for (int wx = sx + 2; wx < sx + sw - windowSize; wx += windowSpacing) {
+                    for (int wy = sy + 2; wy < sy + sh - windowSize; wy += windowSpacing) {
+                        // Use building position to seed random for consistent windows
+                        boolean isLit = ((wx + wy + (int)building.getX()) % 3) != 0;
+                        bufferGraphics.setColor(isLit ? windowColor : windowOff);
+                        bufferGraphics.fillRect(wx, wy, windowSize, windowSize);
                     }
                 }
+            }
+            
+            // AC unit or antenna on some tall buildings
+            if (building.getFloors() > 12 && sw > 10) {
+                bufferGraphics.setColor(new Color(0x555555));
+                bufferGraphics.fillRect(sx + sw/2 - 1, sy + 2, 2, 3);
             }
         }
     }
@@ -492,6 +722,19 @@ public class Renderer {
                         gaugeY + 18, new Color(0xE94560));
         }
         
+        // Understeer indicator - front tires losing grip (pushing wide)
+        if (physics.isUndersteering()) {
+            drawHUDText("!! UNDERSTEER !!", GameConstants.RENDER_WIDTH/2 - 55, 
+                        gaugeY + 5, new Color(0xFCBF49)); // Orange/yellow color
+        }
+        
+        // Oversteer indicator - rear tires sliding out (drifting!)
+        if (physics.isOversteering() && !physics.isDrifting()) {
+            // Show when rear is sliding but not in full scored drift yet
+            drawHUDText(">> OVERSTEER <<", GameConstants.RENDER_WIDTH/2 - 52, 
+                        gaugeY + 5, new Color(0x4ECDC4)); // Cyan color
+        }
+        
         // Bogging indicator (engine struggling in too high a gear)
         if (physics.getEngine().isBogging()) {
             bufferGraphics.setFont(new Font("Monospaced", Font.BOLD, 12));
@@ -666,6 +909,135 @@ public class Renderer {
         // Main text
         bufferGraphics.setColor(color);
         bufferGraphics.drawString(text, x, y);
+    }
+    
+    /**
+     * Draw the minimap in the top-left corner, below controls
+     * Shows a zoomed-in area around the player with same colors as main map
+     */
+    private void drawMinimap(CityWorld world, Car car) {
+        // Minimap dimensions (smaller)
+        int mapSize = 55;  // Smaller minimap
+        int margin = 8;
+        int mapX = margin;  // Left side
+        int mapY = 20;      // Below controls text
+        
+        // Zoomed in view - show area around player (300 units radius)
+        double viewRadius = 300.0;
+        util.Vector2D carPos = car.getPosition();
+        double scale = mapSize / (viewRadius * 2);
+        
+        // Draw background (same as game background)
+        bufferGraphics.setColor(new Color(0x1A1A2E));
+        bufferGraphics.fillRect(mapX - 2, mapY - 2, mapSize + 4, mapSize + 4);
+        
+        // Draw border
+        bufferGraphics.setColor(new Color(0x4ECDC4));
+        bufferGraphics.drawRect(mapX - 2, mapY - 2, mapSize + 4, mapSize + 4);
+        
+        // Set clip to minimap area
+        bufferGraphics.setClip(mapX, mapY, mapSize, mapSize);
+        
+        // Draw roads on minimap (same color as main map roads)
+        bufferGraphics.setColor(roadColor);
+        for (Road road : world.getRoads()) {
+            double[] roadBounds = road.getBounds();
+            
+            // Convert world coords to minimap coords (centered on player)
+            int rx = mapX + mapSize/2 + (int)((roadBounds[0] - carPos.x) * scale);
+            int ry = mapY + mapSize/2 + (int)((roadBounds[1] - carPos.y) * scale);
+            int rw = Math.max(1, (int)(roadBounds[2] * scale));
+            int rh = Math.max(1, (int)(roadBounds[3] * scale));
+            
+            // Only draw if visible in minimap
+            if (rx + rw >= mapX && rx <= mapX + mapSize &&
+                ry + rh >= mapY && ry <= mapY + mapSize) {
+                bufferGraphics.fillRect(rx, ry, rw, rh);
+                
+                // Draw road lines (same as main map)
+                bufferGraphics.setColor(roadLineColor);
+                if (road.isVertical()) {
+                    int centerX = rx + rw / 2;
+                    for (int y = ry; y < ry + rh; y += 4) {
+                        bufferGraphics.drawLine(centerX, y, centerX, y + 2);
+                    }
+                } else {
+                    int centerY = ry + rh / 2;
+                    for (int x = rx; x < rx + rw; x += 4) {
+                        bufferGraphics.drawLine(x, centerY, x + 2, centerY);
+                    }
+                }
+                bufferGraphics.setColor(roadColor);
+            }
+        }
+        
+        // Draw parking lots on minimap
+        Color parkingColor = new Color(0x2D2D35);
+        for (ParkingLot lot : world.getParkingLots()) {
+            int px = mapX + mapSize/2 + (int)((lot.getX() - carPos.x) * scale);
+            int py = mapY + mapSize/2 + (int)((lot.getY() - carPos.y) * scale);
+            int pw = Math.max(1, (int)(lot.getWidth() * scale));
+            int ph = Math.max(1, (int)(lot.getHeight() * scale));
+            
+            if (px + pw >= mapX && px <= mapX + mapSize &&
+                py + ph >= mapY && py <= mapY + mapSize) {
+                bufferGraphics.setColor(parkingColor);
+                bufferGraphics.fillRect(px, py, pw, ph);
+            }
+        }
+        
+        // Draw buildings on minimap (same colors as main map)
+        for (Building building : world.getBuildings()) {
+            int bx = mapX + mapSize/2 + (int)((building.getX() - carPos.x) * scale);
+            int by = mapY + mapSize/2 + (int)((building.getY() - carPos.y) * scale);
+            int bw = Math.max(1, (int)(building.getWidth() * scale));
+            int bh = Math.max(1, (int)(building.getHeight() * scale));
+            
+            // Only draw if visible in minimap
+            if (bx + bw >= mapX && bx <= mapX + mapSize &&
+                by + bh >= mapY && by <= mapY + mapSize) {
+                
+                // Use same color palette as main buildings
+                int colorIdx = building.getColorIndex() % GameConstants.COLOR_PALETTE.length;
+                Color buildingColor = new Color(GameConstants.COLOR_PALETTE[colorIdx]);
+                bufferGraphics.setColor(buildingColor);
+                bufferGraphics.fillRect(bx, by, bw, bh);
+                
+                // Add dark border like main map
+                bufferGraphics.setColor(new Color(0x0D0D0D));
+                bufferGraphics.drawRect(bx, by, bw, bh);
+            }
+        }
+        
+        // Reset clip
+        bufferGraphics.setClip(null);
+        
+        // Draw player at center of minimap
+        int playerX = mapX + mapSize / 2;
+        int playerY = mapY + mapSize / 2;
+        
+        // Draw player direction indicator (small triangle)
+        double rotation = car.getRotation();
+        int arrowSize = 5;
+        
+        int[] xPoints = new int[3];
+        int[] yPoints = new int[3];
+        
+        // Triangle pointing in direction of movement
+        xPoints[0] = playerX + (int)(Math.cos(rotation) * arrowSize);
+        yPoints[0] = playerY + (int)(Math.sin(rotation) * arrowSize);
+        xPoints[1] = playerX + (int)(Math.cos(rotation + 2.5) * arrowSize);
+        yPoints[1] = playerY + (int)(Math.sin(rotation + 2.5) * arrowSize);
+        xPoints[2] = playerX + (int)(Math.cos(rotation - 2.5) * arrowSize);
+        yPoints[2] = playerY + (int)(Math.sin(rotation - 2.5) * arrowSize);
+        
+        // Draw player marker (same red as car)
+        bufferGraphics.setColor(carBodyColor);
+        bufferGraphics.fillPolygon(xPoints, yPoints, 3);
+        
+        // White outline for visibility
+        bufferGraphics.setColor(Color.WHITE);
+        bufferGraphics.drawPolygon(xPoints, yPoints, 3);
     }
     
     public void dispose() {

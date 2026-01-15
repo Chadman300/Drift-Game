@@ -4,7 +4,6 @@ import game.Shop;
 import game.ShopItem;
 import java.awt.*;
 import java.util.List;
-import util.GameConstants;
 
 /**
  * Renders the shop menu UI in pixel art style
@@ -223,6 +222,7 @@ public class ShopPanel {
             case ENGINE: return "ENGINE";
             case TIRES: return "TIRES";
             case SUSPENSION: return "SUSP";
+            case BRAKES: return "BRAKE";
             case WEIGHT: return "WEIGHT";
             default: return cat.name();
         }

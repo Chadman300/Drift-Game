@@ -121,17 +121,15 @@ public class Engine {
             isBogging = bogIntensity > 0.3;
         }
         
-        // Check rev limiter
+        // Check rev limiter - soft limiter that just holds RPM steady
         if (rpm >= GameConstants.REV_LIMITER_RPM) {
             revLimiterActive = true;
-            revLimiterTimer = 0.15; // 150ms fuel cut - longer for visible flame effect
-            rpm = GameConstants.REV_LIMITER_RPM;
+            revLimiterTimer = 0.016; // 16ms - one frame, very smooth
+            rpm = GameConstants.REV_LIMITER_RPM - 50; // Hold just below limiter
             
-            // Trigger bounce effect - needle bounces back when hitting limiter
-            if (revLimiterBounce < 0.05) {
-                revLimiterBounceVel = -8.0; // Initial bounce back velocity
-                bounceCount = 0;
-            }
+            // No bounce - just hold steady
+            revLimiterBounce = 0;
+            revLimiterBounceVel = 0;
         }
         
         // Update rev limiter bounce animation (spring-damper system)

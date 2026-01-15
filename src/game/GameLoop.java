@@ -100,7 +100,7 @@ public class GameLoop extends JPanel implements Runnable {
         
         // Create shop
         shop = new Shop();
-        shop.setPlayerMoney(1000); // Starting money
+        shop.setPlayerMoney(10000); // Starting money
         shopPanel = new ShopPanel(shop);
         
         // Create game state
@@ -275,6 +275,12 @@ public class GameLoop extends JPanel implements Runnable {
             // SFX NOTE: Play gear shift down sound here (lower pitch, maybe with rev match blip)
         }
         
+        // Clutch kick for drift initiation
+        if (input.isClutchKickPressed()) {
+            car.triggerClutchKick();
+            // SFX NOTE: Play clutch kick sound (rev spike + tire chirp)
+        }
+        
         // Consume one-shot inputs after they've been processed
         input.consumeOneShots();
         
@@ -285,6 +291,9 @@ public class GameLoop extends JPanel implements Runnable {
             input.getSteering(),
             input.isHandbrakePressed()
         );
+        
+        // ==================== BUILDING COLLISION ====================
+        checkBuildingCollisions();
         
         // Update scoring
         scoring.update(
@@ -319,6 +328,65 @@ public class GameLoop extends JPanel implements Runnable {
         
         // Track distance
         gameState.addDistance(car.getSpeed() * dt);
+    }
+    
+    /**
+     * Check and handle collisions with buildings
+     */
+    private void checkBuildingCollisions() {
+        physics.VehiclePhysics physics = car.getPhysics();
+        util.Vector2D carPos = physics.getPosition();
+        double radius = physics.getCollisionRadius();
+        
+        world.Building hitBuilding = world.checkBuildingCollision(carPos.x, carPos.y, radius);
+        
+        if (hitBuilding != null) {
+            // Calculate push-out direction (from building center to car)
+            double buildingCenterX = hitBuilding.getCenterX();
+            double buildingCenterY = hitBuilding.getCenterY();
+            
+            double dx = carPos.x - buildingCenterX;
+            double dy = carPos.y - buildingCenterY;
+            double dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist > 0.01) {
+                // Normalize to get collision normal
+                util.Vector2D normal = new util.Vector2D(dx / dist, dy / dist);
+                
+                // Find closest point on building to car
+                double closestX = Math.max(hitBuilding.getX(), 
+                                  Math.min(carPos.x, hitBuilding.getX() + hitBuilding.getWidth()));
+                double closestY = Math.max(hitBuilding.getY(), 
+                                  Math.min(carPos.y, hitBuilding.getY() + hitBuilding.getHeight()));
+                
+                // Push car out of building
+                double overlapX = carPos.x - closestX;
+                double overlapY = carPos.y - closestY;
+                double overlapDist = Math.sqrt(overlapX * overlapX + overlapY * overlapY);
+                
+                if (overlapDist < radius && overlapDist > 0.01) {
+                    // Calculate push direction from closest point
+                    double pushX = overlapX / overlapDist;
+                    double pushY = overlapY / overlapDist;
+                    
+                    // Push car out so it's just outside building
+                    double pushAmount = radius - overlapDist + 0.1;
+                    physics.setPosition(carPos.x + pushX * pushAmount, 
+                                       carPos.y + pushY * pushAmount);
+                    
+                    // Apply bounce impulse
+                    util.Vector2D pushNormal = new util.Vector2D(pushX, pushY);
+                    physics.applyCollisionImpulse(pushNormal, 0.3);
+                    
+                    // Camera shake on collision
+                    double impactSpeed = car.getSpeed();
+                    if (impactSpeed > 5) {
+                        camera.shake(Math.min(impactSpeed / 10, 3.0), 0.3);
+                        // SFX NOTE: Play collision sound here (volume based on impactSpeed)
+                    }
+                }
+            }
+        }
     }
     
     /**
@@ -431,8 +499,9 @@ public class GameLoop extends JPanel implements Runnable {
         double grip = shop.getModifier(ShopItem.Category.TIRES);
         double handling = shop.getModifier(ShopItem.Category.SUSPENSION);
         double weight = shop.getModifier(ShopItem.Category.WEIGHT);
+        double brakes = shop.getModifier(ShopItem.Category.BRAKES);
         double tireDur = shop.getTireDurability();
         
-        car.getPhysics().applyUpgrades(steering, power, grip, handling, weight, tireDur);
+        car.getPhysics().applyUpgrades(steering, power, grip, handling, weight, tireDur, brakes);
     }
 }

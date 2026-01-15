@@ -9,7 +9,8 @@ public class ShopItem {
         STEERING,   // Turn angle upgrades
         ENGINE,     // Power upgrades
         TIRES,      // Tire compounds
-        SUSPENSION, // Handling upgrades
+        SUSPENSION, // Handling & stability upgrades
+        BRAKES,     // Braking power upgrades
         WEIGHT      // Weight reduction
     }
     

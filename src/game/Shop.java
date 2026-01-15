@@ -57,6 +57,13 @@ public class Shop {
         stockParts.put(ShopItem.Category.SUSPENSION, stockSuspension);
         equippedItems.put(ShopItem.Category.SUSPENSION, stockSuspension);
         
+        ShopItem stockBrakes = new ShopItem("stock_brakes", "Stock Brakes", 
+            "Factory brake system with ABS", ShopItem.Category.BRAKES, 0, 1.0);
+        stockBrakes.setOwned(true);
+        stockBrakes.setEquipped(true);
+        stockParts.put(ShopItem.Category.BRAKES, stockBrakes);
+        equippedItems.put(ShopItem.Category.BRAKES, stockBrakes);
+        
         ShopItem stockWeight = new ShopItem("stock_weight", "Stock Body", 
             "Full interior, stock panels", ShopItem.Category.WEIGHT, 0, 1.0);
         stockWeight.setOwned(true);
@@ -122,22 +129,39 @@ public class Shop {
             "+50% grip\nWears very fast!", 
             ShopItem.Category.TIRES, 5000, 1.50, 0.25));
         
-        // ========== SUSPENSION ==========
+        // ========== SUSPENSION (now affects stability & yaw control) ==========
         allItems.add(new ShopItem("susp_1", "Lowering Springs", 
-            "+10% handling\nLower center of gravity", 
+            "+10% stability\nBetter weight transfer", 
             ShopItem.Category.SUSPENSION, 400, 1.10));
         
         allItems.add(new ShopItem("susp_2", "Coilovers", 
-            "+20% handling\nAdjustable damping", 
+            "+20% stability\nImproved drift control", 
             ShopItem.Category.SUSPENSION, 1500, 1.20));
         
         allItems.add(new ShopItem("susp_3", "Racing Coilovers", 
-            "+30% handling\nTrack-ready setup", 
+            "+30% stability\nPrecision yaw response", 
             ShopItem.Category.SUSPENSION, 4000, 1.30));
         
         allItems.add(new ShopItem("susp_4", "Pro Drift Suspension", 
-            "+40% handling\nKnuckle & arm kit", 
+            "+40% stability\nMaximum drift precision", 
             ShopItem.Category.SUSPENSION, 7500, 1.40));
+        
+        // ========== BRAKES (new category) ==========
+        allItems.add(new ShopItem("brakes_1", "Sport Brake Pads", 
+            "+15% braking power\nBetter ABS response", 
+            ShopItem.Category.BRAKES, 400, 1.15));
+        
+        allItems.add(new ShopItem("brakes_2", "Big Brake Kit", 
+            "+25% braking power\nLarger rotors, 4-piston", 
+            ShopItem.Category.BRAKES, 1200, 1.25));
+        
+        allItems.add(new ShopItem("brakes_3", "Racing Brake Kit", 
+            "+40% braking power\nCarbon-ceramic, 6-piston", 
+            ShopItem.Category.BRAKES, 3500, 1.40));
+        
+        allItems.add(new ShopItem("brakes_4", "Competition Brakes", 
+            "+60% braking power\nFormula-spec stopping", 
+            ShopItem.Category.BRAKES, 7000, 1.60));
         
         // ========== WEIGHT REDUCTION ==========
         allItems.add(new ShopItem("weight_1", "Interior Delete", 

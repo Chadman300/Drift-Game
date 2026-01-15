@@ -259,6 +259,14 @@ public class Car {
     }
     
     /**
+     * Trigger clutch kick for drift initiation
+     * Creates a sudden torque spike that breaks rear traction
+     */
+    public void triggerClutchKick() {
+        physics.triggerClutchKick();
+    }
+    
+    /**
      * Reset car to position
      */
     public void reset(double x, double y) {
