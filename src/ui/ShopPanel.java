@@ -11,7 +11,7 @@ import java.util.List;
  */
 public class ShopPanel {
     
-    private Shop shop;
+    private Shop shop;;//
     private boolean visible;
     private ShopItem.Category selectedCategory;
     private int selectedItemIndex;
