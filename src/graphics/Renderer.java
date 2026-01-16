@@ -132,7 +132,7 @@ public class Renderer {
         Color sidewalkColor = new Color(0x4A4A50);
         Color mainRoadColor = new Color(0x38383D);
         
-        // First pass: draw all roads
+        // First pass: draw all straight roads
         for (Road road : world.getRoads()) {
             double[] roadBounds = road.getBounds();
             
@@ -142,14 +142,81 @@ public class Renderer {
                 continue;
             }
             
-            // Only straight roads now
             if (!road.isCurved()) {
                 drawStraightRoad(road, roadBounds, roadEdgeColor, sidewalkColor, mainRoadColor);
             }
         }
         
+        // Draw curved roads
+        for (Road road : world.getRoads()) {
+            if (road.isCurved()) {
+                double[] roadBounds = road.getBounds();
+                if (roadBounds[0] + roadBounds[2] < bounds[0] || roadBounds[0] > bounds[2] ||
+                    roadBounds[1] + roadBounds[3] < bounds[1] || roadBounds[1] > bounds[3]) {
+                    continue;
+                }
+                drawCurvedRoad(road, sidewalkColor);
+            }
+        }
+        
         // Second pass: draw intersections on top for clean look
         drawIntersections(world, bounds, mainRoadColor);
+    }
+    
+    /**
+     * Draw a curved road with proper visuals
+     */
+    private void drawCurvedRoad(Road road, Color sidewalkColor) {
+        java.util.List<double[]> points = road.getCurvePoints();
+        if (points == null || points.size() < 2) return;
+        
+        int halfWidth = camera.scaleToScreen(road.getWidth() / 2);
+        int fullWidth = halfWidth * 2;
+        
+        Graphics2D g2d = (Graphics2D) bufferGraphics;
+        Stroke oldStroke = g2d.getStroke();
+        
+        // Draw sidewalk/edge first (wider)
+        g2d.setStroke(new BasicStroke(fullWidth + 4, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g2d.setColor(sidewalkColor);
+        for (int i = 0; i < points.size() - 1; i++) {
+            double[] p1 = points.get(i);
+            double[] p2 = points.get(i + 1);
+            int x1 = camera.worldToScreenX(p1[0]);
+            int y1 = camera.worldToScreenY(p1[1]);
+            int x2 = camera.worldToScreenX(p2[0]);
+            int y2 = camera.worldToScreenY(p2[1]);
+            g2d.drawLine(x1, y1, x2, y2);
+        }
+        
+        // Draw road surface
+        g2d.setStroke(new BasicStroke(fullWidth, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g2d.setColor(roadColor);
+        for (int i = 0; i < points.size() - 1; i++) {
+            double[] p1 = points.get(i);
+            double[] p2 = points.get(i + 1);
+            int x1 = camera.worldToScreenX(p1[0]);
+            int y1 = camera.worldToScreenY(p1[1]);
+            int x2 = camera.worldToScreenX(p2[0]);
+            int y2 = camera.worldToScreenY(p2[1]);
+            g2d.drawLine(x1, y1, x2, y2);
+        }
+        
+        // Draw center line (dashed)
+        g2d.setStroke(new BasicStroke(1, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 
+                                       10.0f, new float[]{4.0f, 4.0f}, 0.0f));
+        g2d.setColor(roadLineColor);
+        for (int i = 0; i < points.size() - 1; i++) {
+            double[] p1 = points.get(i);
+            double[] p2 = points.get(i + 1);
+            int x1 = camera.worldToScreenX(p1[0]);
+            int y1 = camera.worldToScreenY(p1[1]);
+            int x2 = camera.worldToScreenX(p2[0]);
+            int y2 = camera.worldToScreenY(p2[1]);
+            g2d.drawLine(x1, y1, x2, y2);
+        }
+        
+        g2d.setStroke(oldStroke);
     }
     
     /**
@@ -209,45 +276,35 @@ public class Renderer {
                 bufferGraphics.setColor(isHighway ? mainRoadColor : roadColor);
                 bufferGraphics.fillRect(sx, sy, ss, ss);
                 
-                // Draw proper crosswalks at all four sides
-                if (ss > 8) {
+                // Draw intersection markings
+                if (ss > 6) {
+                    // Crosswalks - simple white rectangles at edges
                     bufferGraphics.setColor(roadLineColor);
-                    int crosswalkWidth = Math.max(3, ss / 5);
-                    int stripeWidth = Math.max(1, crosswalkWidth / 3);
-                    int numStripes = Math.max(2, ss / 4);
-                    int stripeSpacing = (ss - 4) / numStripes;
+                    int cwWidth = Math.max(2, ss / 6);
                     
-                    // Top crosswalk
-                    for (int i = 0; i < numStripes; i++) {
-                        int xPos = sx + 2 + i * stripeSpacing;
-                        bufferGraphics.fillRect(xPos, sy, stripeWidth, crosswalkWidth);
-                    }
-                    // Bottom crosswalk
-                    for (int i = 0; i < numStripes; i++) {
-                        int xPos = sx + 2 + i * stripeSpacing;
-                        bufferGraphics.fillRect(xPos, sy + ss - crosswalkWidth, stripeWidth, crosswalkWidth);
-                    }
-                    // Left crosswalk
-                    for (int i = 0; i < numStripes; i++) {
-                        int yPos = sy + 2 + i * stripeSpacing;
-                        bufferGraphics.fillRect(sx, yPos, crosswalkWidth, stripeWidth);
-                    }
-                    // Right crosswalk
-                    for (int i = 0; i < numStripes; i++) {
-                        int yPos = sy + 2 + i * stripeSpacing;
-                        bufferGraphics.fillRect(sx + ss - crosswalkWidth, yPos, crosswalkWidth, stripeWidth);
+                    if (!isHighway) {
+                        // Top and bottom crosswalks (horizontal stripes)
+                        for (int i = 2; i < ss - 2; i += 3) {
+                            bufferGraphics.fillRect(sx + i, sy + 1, 2, cwWidth);
+                            bufferGraphics.fillRect(sx + i, sy + ss - cwWidth - 1, 2, cwWidth);
+                        }
+                        // Left and right crosswalks (vertical stripes)
+                        for (int i = 2; i < ss - 2; i += 3) {
+                            bufferGraphics.fillRect(sx + 1, sy + i, cwWidth, 2);
+                            bufferGraphics.fillRect(sx + ss - cwWidth - 1, sy + i, cwWidth, 2);
+                        }
                     }
                     
-                    // Stop lines (white lines before crosswalks)
-                    if (!isHighway && ss > 10) {
-                        int stopOffset = crosswalkWidth + 1;
-                        // Vertical road stop lines
-                        bufferGraphics.fillRect(sx, sy + stopOffset, ss/2 - 1, 1);
-                        bufferGraphics.fillRect(cx + 1, sy + ss - stopOffset - 1, ss/2 - 1, 1);
-                        // Horizontal road stop lines  
-                        bufferGraphics.fillRect(sx + stopOffset, sy, 1, ss/2 - 1);
-                        bufferGraphics.fillRect(sx + ss - stopOffset - 1, cy + 1, 1, ss/2 - 1);
-                    }
+                    // Draw corner curves for turning guidance
+                    bufferGraphics.setColor(new Color(roadColor.getRed() - 15, 
+                                                       roadColor.getGreen() - 15, 
+                                                       roadColor.getBlue() - 15));
+                    int cornerSize = ss / 4;
+                    // Four corners slightly darker
+                    bufferGraphics.fillRect(sx, sy, cornerSize, cornerSize);
+                    bufferGraphics.fillRect(sx + ss - cornerSize, sy, cornerSize, cornerSize);
+                    bufferGraphics.fillRect(sx, sy + ss - cornerSize, cornerSize, cornerSize);
+                    bufferGraphics.fillRect(sx + ss - cornerSize, sy + ss - cornerSize, cornerSize, cornerSize);
                 }
             }
         }

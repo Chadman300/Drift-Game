@@ -60,37 +60,38 @@ public class CityWorld {
         for (int i = 1; i < numBlocks; i++) {
             for (int j = 1; j < numBlocks; j++) {
                 // Place roundabouts at some intersections (not at edges)
-                if (random.nextDouble() < 0.12 && !hasAdjacentRoundabout(isRoundabout, i, j)) {
+                if (random.nextDouble() < 0.15 && !hasAdjacentRoundabout(isRoundabout, i, j)) {
                     isRoundabout[i][j] = true;
                     double rx = i * blockSize - worldSize / 2;
                     double ry = j * blockSize - worldSize / 2;
-                    double outerR = roadWidth * 1.8;
-                    double innerR = roadWidth * 0.7;
+                    double outerR = roadWidth * 2.0;
+                    double innerR = roadWidth * 0.8;
                     roundabouts.add(new Roundabout(rx, ry, outerR, innerR, 4));
                 }
             }
         }
         
-        // Generate roads (avoiding roundabout centers)
+        // Generate roads - roads connect TO the roundabout outer edge
         for (int i = 0; i <= numBlocks; i++) {
             boolean isMainRoad = (i % 3 == 0);
             double width = isMainRoad ? roadWidth * 1.3 : roadWidth;
             
-            // Create road segments between roundabouts
+            // Vertical roads
             for (int seg = 0; seg < numBlocks; seg++) {
                 double x = i * blockSize - worldSize / 2;
                 double y1 = seg * blockSize - worldSize / 2;
                 double y2 = (seg + 1) * blockSize - worldSize / 2;
                 
-                // Skip if this segment connects to a roundabout
-                boolean startIsRound = (i < numBlocks + 1 && seg < numBlocks + 1) && isRoundabout[Math.min(i, numBlocks)][Math.min(seg, numBlocks)];
-                boolean endIsRound = (i < numBlocks + 1 && seg + 1 < numBlocks + 1) && isRoundabout[Math.min(i, numBlocks)][Math.min(seg + 1, numBlocks)];
+                // Check roundabouts at both ends of this segment
+                boolean startIsRound = i >= 0 && i <= numBlocks && seg >= 0 && seg <= numBlocks && isRoundabout[i][seg];
+                boolean endIsRound = i >= 0 && i <= numBlocks && seg + 1 >= 0 && seg + 1 <= numBlocks && isRoundabout[i][seg + 1];
                 
-                // Adjust road to connect to roundabout edge
-                if (startIsRound) y1 += roadWidth * 1.8;
-                if (endIsRound) y2 -= roadWidth * 1.8;
+                // Extend road TO roundabout edge (not away from it)
+                double outerR = roadWidth * 2.0;
+                if (startIsRound) y1 += outerR;
+                if (endIsRound) y2 -= outerR;
                 
-                if (y2 > y1) {
+                if (y2 > y1 + 1) {
                     Road vRoad = new Road(x, y1, x, y2, width, true);
                     if (isMainRoad) vRoad.setRoadType(Road.RoadType.HIGHWAY);
                     roads.add(vRoad);
@@ -103,13 +104,14 @@ public class CityWorld {
                 double x1 = seg * blockSize - worldSize / 2;
                 double x2 = (seg + 1) * blockSize - worldSize / 2;
                 
-                boolean startIsRound = (seg < numBlocks + 1 && i < numBlocks + 1) && isRoundabout[Math.min(seg, numBlocks)][Math.min(i, numBlocks)];
-                boolean endIsRound = (seg + 1 < numBlocks + 1 && i < numBlocks + 1) && isRoundabout[Math.min(seg + 1, numBlocks)][Math.min(i, numBlocks)];
+                boolean startIsRound = seg >= 0 && seg <= numBlocks && i >= 0 && i <= numBlocks && isRoundabout[seg][i];
+                boolean endIsRound = seg + 1 >= 0 && seg + 1 <= numBlocks && i >= 0 && i <= numBlocks && isRoundabout[seg + 1][i];
                 
-                if (startIsRound) x1 += roadWidth * 1.8;
-                if (endIsRound) x2 -= roadWidth * 1.8;
+                double outerR = roadWidth * 2.0;
+                if (startIsRound) x1 += outerR;
+                if (endIsRound) x2 -= outerR;
                 
-                if (x2 > x1) {
+                if (x2 > x1 + 1) {
                     Road hRoad = new Road(x1, y, x2, y, width, false);
                     if (isMainRoad) hRoad.setRoadType(Road.RoadType.HIGHWAY);
                     roads.add(hRoad);
@@ -144,28 +146,51 @@ public class CityWorld {
     }
     
     /**
-     * Generate curved roads connecting blocks
+     * Generate curved roads inside some blocks
      */
     private void generateCurvedRoads(int numBlocks, boolean[][] isRoundabout) {
-        for (int i = 0; i < numBlocks - 1; i++) {
-            for (int j = 0; j < numBlocks - 1; j++) {
-                if (random.nextDouble() < 0.08) {
-                    // Corner curve connecting two roads
-                    double cornerX = (i + 1) * blockSize - worldSize / 2;
-                    double cornerY = (j + 1) * blockSize - worldSize / 2;
+        // Add curved roads inside blocks (not at intersections)
+        for (int bx = 0; bx < numBlocks; bx++) {
+            for (int by = 0; by < numBlocks; by++) {
+                if (random.nextDouble() < 0.12) {
+                    // Create a curved road within this block
+                    double blockCenterX = (bx + 0.5) * blockSize - worldSize / 2;
+                    double blockCenterY = (by + 0.5) * blockSize - worldSize / 2;
                     
-                    // Skip if near roundabout
-                    if (isRoundabout[i + 1][j + 1]) continue;
+                    // Random curve configuration
+                    double radius = blockSize * 0.3;
+                    int curveType = random.nextInt(4);
+                    double startAngle, endAngle;
+                    double cx, cy;
                     
-                    double radius = blockSize * 0.35;
-                    int corner = random.nextInt(4);
-                    double startAngle = corner * Math.PI / 2;
+                    switch (curveType) {
+                        case 0: // Top-left corner curve
+                            cx = blockCenterX - blockSize * 0.2;
+                            cy = blockCenterY - blockSize * 0.2;
+                            startAngle = 0;
+                            endAngle = Math.PI / 2;
+                            break;
+                        case 1: // Top-right corner curve
+                            cx = blockCenterX + blockSize * 0.2;
+                            cy = blockCenterY - blockSize * 0.2;
+                            startAngle = Math.PI / 2;
+                            endAngle = Math.PI;
+                            break;
+                        case 2: // Bottom-right corner curve
+                            cx = blockCenterX + blockSize * 0.2;
+                            cy = blockCenterY + blockSize * 0.2;
+                            startAngle = Math.PI;
+                            endAngle = Math.PI * 1.5;
+                            break;
+                        default: // Bottom-left corner curve
+                            cx = blockCenterX - blockSize * 0.2;
+                            cy = blockCenterY + blockSize * 0.2;
+                            startAngle = Math.PI * 1.5;
+                            endAngle = Math.PI * 2;
+                            break;
+                    }
                     
-                    // Offset center based on which corner
-                    double cx = cornerX + (corner == 0 || corner == 3 ? -radius : radius);
-                    double cy = cornerY + (corner == 0 || corner == 1 ? -radius : radius);
-                    
-                    Road curved = new Road(cx, cy, radius, startAngle, startAngle + Math.PI / 2, roadWidth * 0.9);
+                    Road curved = new Road(cx, cy, radius, startAngle, endAngle, roadWidth * 0.8);
                     curved.setRoadType(Road.RoadType.SIDE_STREET);
                     roads.add(curved);
                 }
