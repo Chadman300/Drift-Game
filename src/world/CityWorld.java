@@ -41,89 +41,166 @@ public class CityWorld {
         this.roads = new ArrayList<>();
         this.parkingLots = new ArrayList<>();
         this.streetLights = new ArrayList<>();
+        this.roundabouts = new ArrayList<>();
         
         generateCity();
     }
     
+    // Roundabouts list
+    private List<Roundabout> roundabouts;
+    
     /**
-     * Generate the city layout with curved roads and variety
+     * Generate the city layout with variety
      */
     private void generateCity() {
         int numBlocks = (int)(worldSize / blockSize);
         
-        // Generate main grid of roads
-        for (int i = 0; i <= numBlocks; i++) {
-            // Vertical roads
-            double x = i * blockSize - worldSize / 2;
-            Road vRoad = new Road(x, -worldSize / 2, x, worldSize / 2, roadWidth, true);
-            // Main roads are wider
-            if (i % 3 == 0) {
-                vRoad = new Road(x, -worldSize / 2, x, worldSize / 2, roadWidth * 1.3, true);
-                vRoad.setRoadType(Road.RoadType.HIGHWAY);
+        // First, decide which intersections will be roundabouts
+        boolean[][] isRoundabout = new boolean[numBlocks + 1][numBlocks + 1];
+        for (int i = 1; i < numBlocks; i++) {
+            for (int j = 1; j < numBlocks; j++) {
+                // Place roundabouts at some intersections (not at edges)
+                if (random.nextDouble() < 0.12 && !hasAdjacentRoundabout(isRoundabout, i, j)) {
+                    isRoundabout[i][j] = true;
+                    double rx = i * blockSize - worldSize / 2;
+                    double ry = j * blockSize - worldSize / 2;
+                    double outerR = roadWidth * 1.8;
+                    double innerR = roadWidth * 0.7;
+                    roundabouts.add(new Roundabout(rx, ry, outerR, innerR, 4));
+                }
             }
-            roads.add(vRoad);
-            
-            // Horizontal roads
-            double y = i * blockSize - worldSize / 2;
-            Road hRoad = new Road(-worldSize / 2, y, worldSize / 2, y, roadWidth, false);
-            if (i % 3 == 0) {
-                hRoad = new Road(-worldSize / 2, y, worldSize / 2, y, roadWidth * 1.3, false);
-                hRoad.setRoadType(Road.RoadType.HIGHWAY);
-            }
-            roads.add(hRoad);
-            
-            // Add street lights along roads
-            generateStreetLightsForRoad(x, y, i == numBlocks);
         }
         
-        // Add curved roads at some intersections for variety
-        generateCurvedRoads(numBlocks);
+        // Generate roads (avoiding roundabout centers)
+        for (int i = 0; i <= numBlocks; i++) {
+            boolean isMainRoad = (i % 3 == 0);
+            double width = isMainRoad ? roadWidth * 1.3 : roadWidth;
+            
+            // Create road segments between roundabouts
+            for (int seg = 0; seg < numBlocks; seg++) {
+                double x = i * blockSize - worldSize / 2;
+                double y1 = seg * blockSize - worldSize / 2;
+                double y2 = (seg + 1) * blockSize - worldSize / 2;
+                
+                // Skip if this segment connects to a roundabout
+                boolean startIsRound = (i < numBlocks + 1 && seg < numBlocks + 1) && isRoundabout[Math.min(i, numBlocks)][Math.min(seg, numBlocks)];
+                boolean endIsRound = (i < numBlocks + 1 && seg + 1 < numBlocks + 1) && isRoundabout[Math.min(i, numBlocks)][Math.min(seg + 1, numBlocks)];
+                
+                // Adjust road to connect to roundabout edge
+                if (startIsRound) y1 += roadWidth * 1.8;
+                if (endIsRound) y2 -= roadWidth * 1.8;
+                
+                if (y2 > y1) {
+                    Road vRoad = new Road(x, y1, x, y2, width, true);
+                    if (isMainRoad) vRoad.setRoadType(Road.RoadType.HIGHWAY);
+                    roads.add(vRoad);
+                }
+            }
+            
+            // Horizontal roads
+            for (int seg = 0; seg < numBlocks; seg++) {
+                double y = i * blockSize - worldSize / 2;
+                double x1 = seg * blockSize - worldSize / 2;
+                double x2 = (seg + 1) * blockSize - worldSize / 2;
+                
+                boolean startIsRound = (seg < numBlocks + 1 && i < numBlocks + 1) && isRoundabout[Math.min(seg, numBlocks)][Math.min(i, numBlocks)];
+                boolean endIsRound = (seg + 1 < numBlocks + 1 && i < numBlocks + 1) && isRoundabout[Math.min(seg + 1, numBlocks)][Math.min(i, numBlocks)];
+                
+                if (startIsRound) x1 += roadWidth * 1.8;
+                if (endIsRound) x2 -= roadWidth * 1.8;
+                
+                if (x2 > x1) {
+                    Road hRoad = new Road(x1, y, x2, y, width, false);
+                    if (isMainRoad) hRoad.setRoadType(Road.RoadType.HIGHWAY);
+                    roads.add(hRoad);
+                }
+            }
+        }
+        
+        // Generate curved connector roads in some blocks
+        generateCurvedRoads(numBlocks, isRoundabout);
         
         // Generate buildings and parking lots in each block
         for (int bx = 0; bx < numBlocks; bx++) {
             for (int by = 0; by < numBlocks; by++) {
-                generateBlock(bx, by);
+                generateBlock(bx, by, isRoundabout);
             }
         }
-    }
-    
-    /**
-     * Generate street lights along roads
-     */
-    private void generateStreetLightsForRoad(double roadX, double roadY, boolean isLast) {
-        double spacing = blockSize / 2.0;
         
-        // Lights along vertical road (on both sides)
-        for (double y = -worldSize / 2; y < worldSize / 2; y += spacing) {
-            if (random.nextDouble() < 0.7) {
-                streetLights.add(new StreetLight(roadX - roadWidth/2 - 2, y, 0, random.nextInt(3)));
+        // Add street lights
+        generateStreetLights(numBlocks, isRoundabout);
+    }
+    
+    private boolean hasAdjacentRoundabout(boolean[][] isRoundabout, int i, int j) {
+        int[][] neighbors = {{-1,0},{1,0},{0,-1},{0,1},{-1,-1},{1,1},{-1,1},{1,-1}};
+        for (int[] n : neighbors) {
+            int ni = i + n[0];
+            int nj = j + n[1];
+            if (ni >= 0 && ni < isRoundabout.length && nj >= 0 && nj < isRoundabout[0].length) {
+                if (isRoundabout[ni][nj]) return true;
             }
-            if (random.nextDouble() < 0.7) {
-                streetLights.add(new StreetLight(roadX + roadWidth/2 + 2, y, Math.PI, random.nextInt(3)));
+        }
+        return false;
+    }
+    
+    /**
+     * Generate curved roads connecting blocks
+     */
+    private void generateCurvedRoads(int numBlocks, boolean[][] isRoundabout) {
+        for (int i = 0; i < numBlocks - 1; i++) {
+            for (int j = 0; j < numBlocks - 1; j++) {
+                if (random.nextDouble() < 0.08) {
+                    // Corner curve connecting two roads
+                    double cornerX = (i + 1) * blockSize - worldSize / 2;
+                    double cornerY = (j + 1) * blockSize - worldSize / 2;
+                    
+                    // Skip if near roundabout
+                    if (isRoundabout[i + 1][j + 1]) continue;
+                    
+                    double radius = blockSize * 0.35;
+                    int corner = random.nextInt(4);
+                    double startAngle = corner * Math.PI / 2;
+                    
+                    // Offset center based on which corner
+                    double cx = cornerX + (corner == 0 || corner == 3 ? -radius : radius);
+                    double cy = cornerY + (corner == 0 || corner == 1 ? -radius : radius);
+                    
+                    Road curved = new Road(cx, cy, radius, startAngle, startAngle + Math.PI / 2, roadWidth * 0.9);
+                    curved.setRoadType(Road.RoadType.SIDE_STREET);
+                    roads.add(curved);
+                }
             }
         }
     }
     
     /**
-     * Generate curved roads at select locations
+     * Generate street lights at proper positions
      */
-    private void generateCurvedRoads(int numBlocks) {
-        // Add curved connector roads in some blocks
-        for (int i = 1; i < numBlocks - 1; i += 2) {
-            for (int j = 1; j < numBlocks - 1; j += 2) {
-                if (random.nextDouble() < 0.3) {
-                    // Create a curved road connecting two straight roads
-                    double centerX = (i + 0.5) * blockSize - worldSize / 2;
-                    double centerY = (j + 0.5) * blockSize - worldSize / 2;
-                    double radius = blockSize * 0.4;
-                    
-                    // Random quarter-circle curve
-                    double startAngle = random.nextInt(4) * Math.PI / 2;
-                    double endAngle = startAngle + Math.PI / 2;
-                    
-                    Road curvedRoad = new Road(centerX, centerY, radius, startAngle, endAngle, roadWidth * 0.8);
-                    curvedRoad.setRoadType(Road.RoadType.SIDE_STREET);
-                    roads.add(curvedRoad);
+    private void generateStreetLights(int numBlocks, boolean[][] isRoundabout) {
+        double offset = roadWidth / 2 + 3;
+        
+        for (int i = 0; i <= numBlocks; i++) {
+            for (int j = 0; j <= numBlocks; j++) {
+                double x = i * blockSize - worldSize / 2;
+                double y = j * blockSize - worldSize / 2;
+                
+                if (isRoundabout[Math.min(i, numBlocks - 1)][Math.min(j, numBlocks - 1)]) {
+                    // Lights around roundabout
+                    double rOffset = roadWidth * 2.2;
+                    for (int a = 0; a < 8; a++) {
+                        double angle = a * Math.PI / 4;
+                        streetLights.add(new StreetLight(
+                            x + Math.cos(angle) * rOffset,
+                            y + Math.sin(angle) * rOffset,
+                            angle + Math.PI, random.nextInt(2)
+                        ));
+                    }
+                } else {
+                    // Four corners of intersection
+                    streetLights.add(new StreetLight(x - offset, y - offset, Math.PI * 0.25, 0));
+                    streetLights.add(new StreetLight(x + offset, y - offset, Math.PI * 0.75, 1));
+                    streetLights.add(new StreetLight(x - offset, y + offset, -Math.PI * 0.25, 0));
+                    streetLights.add(new StreetLight(x + offset, y + offset, -Math.PI * 0.75, 1));
                 }
             }
         }
@@ -132,45 +209,100 @@ public class CityWorld {
     /**
      * Generate buildings for a single city block
      */
-    private void generateBlock(int blockX, int blockY) {
-        double startX = blockX * blockSize - worldSize / 2 + roadWidth / 2;
-        double startY = blockY * blockSize - worldSize / 2 + roadWidth / 2;
-        double availableSize = blockSize - roadWidth;
+    private void generateBlock(int blockX, int blockY, boolean[][] isRoundabout) {
+        double margin = roadWidth * 0.8;
+        double startX = blockX * blockSize - worldSize / 2 + margin;
+        double startY = blockY * blockSize - worldSize / 2 + margin;
+        double availableSize = blockSize - margin * 2;
         
-        // Determine block type based on location and random
+        if (availableSize < 20) return;
+        
+        // Check if adjacent to roundabout - need extra margin
+        boolean nearRoundabout = false;
+        int[][] corners = {{blockX, blockY}, {blockX+1, blockY}, {blockX, blockY+1}, {blockX+1, blockY+1}};
+        for (int[] c : corners) {
+            if (c[0] < isRoundabout.length && c[1] < isRoundabout[0].length && isRoundabout[c[0]][c[1]]) {
+                nearRoundabout = true;
+            }
+        }
+        if (nearRoundabout) {
+            margin += roadWidth * 0.5;
+            startX = blockX * blockSize - worldSize / 2 + margin;
+            startY = blockY * blockSize - worldSize / 2 + margin;
+            availableSize = blockSize - margin * 2;
+        }
+        
         double distFromCenter = Math.sqrt(
             Math.pow(startX + availableSize/2, 2) + 
             Math.pow(startY + availableSize/2, 2)
         );
         
-        // Central area has more commercial buildings
         boolean isCentral = distFromCenter < worldSize * 0.3;
-        
-        // Random block type
         double roll = random.nextDouble();
         
-        if (roll < 0.12) {
-            // Parking lot
+        if (roll < 0.10) {
             generateParkingLot(startX, startY, availableSize);
-        } else if (roll < 0.18) {
-            // Empty lot / park (no buildings)
-            return;
-        } else if (isCentral && roll < 0.45) {
-            // Downtown: tall single building
+        } else if (roll < 0.15) {
+            return; // Empty lot
+        } else if (isCentral && roll < 0.35) {
             generateSkyscraper(startX, startY, availableSize);
+        } else if (roll < 0.45) {
+            generateCircularBuilding(startX, startY, availableSize);
         } else if (roll < 0.55) {
-            // Four medium buildings
             generateQuadBuildings(startX, startY, availableSize);
         } else if (roll < 0.70) {
-            // Many small buildings
             generateSmallBuildings(startX, startY, availableSize);
-        } else if (roll < 0.85) {
-            // L-shaped or U-shaped building
+        } else if (roll < 0.80) {
             generateShapedBuilding(startX, startY, availableSize);
+        } else if (roll < 0.90) {
+            generateOctagonBuilding(startX, startY, availableSize);
         } else {
-            // Mix of sizes
             generateMixedBuildings(startX, startY, availableSize);
         }
+    }
+    
+    /**
+     * Generate a circular/tower building
+     */
+    private void generateCircularBuilding(double x, double y, double size) {
+        double centerX = x + size / 2;
+        double centerY = y + size / 2;
+        double radius = size * 0.4;
+        int height = 8 + random.nextInt(15);
+        int colorIndex = random.nextInt(GameConstants.COLOR_PALETTE.length);
+        
+        buildings.add(new Building(centerX, centerY, radius * 2, radius * 2, height, colorIndex, 
+                                   Building.BuildingShape.CIRCLE, 0));
+        
+        // Maybe add smaller circular buildings around it
+        if (random.nextDouble() < 0.4) {
+            double smallRadius = radius * 0.35;
+            double offset = radius + smallRadius + 3;
+            int numSmall = 2 + random.nextInt(2);
+            for (int i = 0; i < numSmall; i++) {
+                double angle = (2 * Math.PI * i) / numSmall + random.nextDouble() * 0.5;
+                double sx = centerX + Math.cos(angle) * offset;
+                double sy = centerY + Math.sin(angle) * offset;
+                if (sx > x && sx < x + size && sy > y && sy < y + size) {
+                    buildings.add(new Building(sx, sy, smallRadius * 2, smallRadius * 2, 
+                                               height / 2, colorIndex, Building.BuildingShape.CIRCLE, 0));
+                }
+            }
+        }
+    }
+    
+    /**
+     * Generate octagonal building
+     */
+    private void generateOctagonBuilding(double x, double y, double size) {
+        double margin = 6;
+        double buildingSize = size - margin * 2;
+        int height = 6 + random.nextInt(12);
+        int colorIndex = random.nextInt(GameConstants.COLOR_PALETTE.length);
+        double rotation = random.nextDouble() * Math.PI / 8; // Slight random rotation
+        
+        buildings.add(new Building(x + margin, y + margin, buildingSize, buildingSize, 
+                                   height, colorIndex, Building.BuildingShape.OCTAGON, rotation));
     }
     
     /**
@@ -310,9 +442,13 @@ public class CityWorld {
     }
     
     /**
-     * Check if a point is on a road
+     * Check if a point is on a road or roundabout
      */
     public boolean isOnRoad(double x, double y) {
+        // Check roundabouts first
+        for (Roundabout r : roundabouts) {
+            if (r.containsPoint(x, y)) return true;
+        }
         for (Road road : roads) {
             if (road.containsPoint(x, y)) {
                 return true;
@@ -322,9 +458,17 @@ public class CityWorld {
     }
     
     /**
-     * Check collision with buildings
+     * Check collision with buildings or roundabout islands
      */
     public Building checkBuildingCollision(double x, double y, double radius) {
+        // Check roundabout center islands
+        for (Roundabout r : roundabouts) {
+            if (r.collidesWithIsland(x, y, radius)) {
+                // Return a fake building for collision response
+                return new Building(r.getX() - r.getInnerRadius(), r.getY() - r.getInnerRadius(),
+                                    r.getInnerRadius() * 2, r.getInnerRadius() * 2, 1, 0);
+            }
+        }
         for (Building building : buildings) {
             if (building.intersectsCircle(x, y, radius)) {
                 return building;
@@ -340,7 +484,6 @@ public class CityWorld {
         if (isOnRoad(x, y)) {
             return SurfaceType.ASPHALT;
         }
-        // Check if on parking lot
         for (ParkingLot lot : parkingLots) {
             if (x >= lot.getX() && x <= lot.getX() + lot.getWidth() &&
                 y >= lot.getY() && y <= lot.getY() + lot.getHeight()) {
@@ -355,6 +498,7 @@ public class CityWorld {
     public List<Road> getRoads() { return roads; }
     public List<ParkingLot> getParkingLots() { return parkingLots; }
     public List<StreetLight> getStreetLights() { return streetLights; }
+    public List<Roundabout> getRoundabouts() { return roundabouts; }
     public double getWorldSize() { return worldSize; }
     
     /**

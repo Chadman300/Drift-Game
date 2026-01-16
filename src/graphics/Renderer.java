@@ -12,6 +12,7 @@ import world.Building;
 import world.CityWorld;
 import world.ParkingLot;
 import world.Road;
+import world.Roundabout;
 import world.StreetLight;
 
 /**
@@ -91,6 +92,7 @@ public class Renderer {
         
         // Draw world layers
         drawRoads(world, bounds);
+        drawRoundabouts(world, bounds);
         drawParkingLots(world, bounds);
         drawTireMarks();
         drawBuildings(world, bounds);
@@ -130,6 +132,7 @@ public class Renderer {
         Color sidewalkColor = new Color(0x4A4A50);
         Color mainRoadColor = new Color(0x38383D);
         
+        // First pass: draw all roads
         for (Road road : world.getRoads()) {
             double[] roadBounds = road.getBounds();
             
@@ -139,10 +142,183 @@ public class Renderer {
                 continue;
             }
             
-            if (road.isCurved()) {
-                drawCurvedRoad(road);
-            } else {
+            // Only straight roads now
+            if (!road.isCurved()) {
                 drawStraightRoad(road, roadBounds, roadEdgeColor, sidewalkColor, mainRoadColor);
+            }
+        }
+        
+        // Second pass: draw intersections on top for clean look
+        drawIntersections(world, bounds, mainRoadColor);
+    }
+    
+    /**
+     * Draw clean intersections where roads meet
+     */
+    private void drawIntersections(CityWorld world, double[] bounds, Color mainRoadColor) {
+        // Find intersections by looking for crossing vertical and horizontal roads
+        java.util.List<Road> verticalRoads = new java.util.ArrayList<>();
+        java.util.List<Road> horizontalRoads = new java.util.ArrayList<>();
+        
+        for (Road road : world.getRoads()) {
+            if (road.isCurved()) continue;
+            if (road.isVertical()) {
+                verticalRoads.add(road);
+            } else {
+                horizontalRoads.add(road);
+            }
+        }
+        
+        // Draw intersection at each crossing
+        for (Road vRoad : verticalRoads) {
+            for (Road hRoad : horizontalRoads) {
+                double ix = vRoad.getX1();
+                double iy = hRoad.getY1();
+                
+                // Check if intersection is in view
+                double maxWidth = Math.max(vRoad.getWidth(), hRoad.getWidth());
+                if (ix - maxWidth > bounds[2] || ix + maxWidth < bounds[0] ||
+                    iy - maxWidth > bounds[3] || iy + maxWidth < bounds[1]) {
+                    continue;
+                }
+                
+                // Skip if there's a roundabout here
+                boolean hasRoundabout = false;
+                for (Roundabout r : world.getRoundabouts()) {
+                    double dx = r.getX() - ix;
+                    double dy = r.getY() - iy;
+                    if (Math.sqrt(dx*dx + dy*dy) < r.getOuterRadius() + maxWidth) {
+                        hasRoundabout = true;
+                        break;
+                    }
+                }
+                if (hasRoundabout) continue;
+                
+                // Intersection size based on larger road
+                double size = maxWidth;
+                
+                int sx = camera.worldToScreenX(ix - size/2);
+                int sy = camera.worldToScreenY(iy - size/2);
+                int ss = camera.scaleToScreen(size);
+                int cx = sx + ss/2;
+                int cy = sy + ss/2;
+                
+                // Draw intersection surface
+                boolean isHighway = vRoad.getRoadType() == Road.RoadType.HIGHWAY || 
+                                   hRoad.getRoadType() == Road.RoadType.HIGHWAY;
+                bufferGraphics.setColor(isHighway ? mainRoadColor : roadColor);
+                bufferGraphics.fillRect(sx, sy, ss, ss);
+                
+                // Draw proper crosswalks at all four sides
+                if (ss > 8) {
+                    bufferGraphics.setColor(roadLineColor);
+                    int crosswalkWidth = Math.max(3, ss / 5);
+                    int stripeWidth = Math.max(1, crosswalkWidth / 3);
+                    int numStripes = Math.max(2, ss / 4);
+                    int stripeSpacing = (ss - 4) / numStripes;
+                    
+                    // Top crosswalk
+                    for (int i = 0; i < numStripes; i++) {
+                        int xPos = sx + 2 + i * stripeSpacing;
+                        bufferGraphics.fillRect(xPos, sy, stripeWidth, crosswalkWidth);
+                    }
+                    // Bottom crosswalk
+                    for (int i = 0; i < numStripes; i++) {
+                        int xPos = sx + 2 + i * stripeSpacing;
+                        bufferGraphics.fillRect(xPos, sy + ss - crosswalkWidth, stripeWidth, crosswalkWidth);
+                    }
+                    // Left crosswalk
+                    for (int i = 0; i < numStripes; i++) {
+                        int yPos = sy + 2 + i * stripeSpacing;
+                        bufferGraphics.fillRect(sx, yPos, crosswalkWidth, stripeWidth);
+                    }
+                    // Right crosswalk
+                    for (int i = 0; i < numStripes; i++) {
+                        int yPos = sy + 2 + i * stripeSpacing;
+                        bufferGraphics.fillRect(sx + ss - crosswalkWidth, yPos, crosswalkWidth, stripeWidth);
+                    }
+                    
+                    // Stop lines (white lines before crosswalks)
+                    if (!isHighway && ss > 10) {
+                        int stopOffset = crosswalkWidth + 1;
+                        // Vertical road stop lines
+                        bufferGraphics.fillRect(sx, sy + stopOffset, ss/2 - 1, 1);
+                        bufferGraphics.fillRect(cx + 1, sy + ss - stopOffset - 1, ss/2 - 1, 1);
+                        // Horizontal road stop lines  
+                        bufferGraphics.fillRect(sx + stopOffset, sy, 1, ss/2 - 1);
+                        bufferGraphics.fillRect(sx + ss - stopOffset - 1, cy + 1, 1, ss/2 - 1);
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * Draw roundabouts
+     */
+    private void drawRoundabouts(CityWorld world, double[] bounds) {
+        Color islandColor = new Color(0x27AE60);  // Green island
+        Color islandBorder = new Color(0x1E8449);
+        Color curbColor = new Color(0x4A4A50);
+        
+        for (Roundabout r : world.getRoundabouts()) {
+            // Culling check
+            if (r.getX() + r.getOuterRadius() < bounds[0] || r.getX() - r.getOuterRadius() > bounds[2] ||
+                r.getY() + r.getOuterRadius() < bounds[1] || r.getY() - r.getOuterRadius() > bounds[3]) {
+                continue;
+            }
+            
+            int cx = camera.worldToScreenX(r.getX());
+            int cy = camera.worldToScreenY(r.getY());
+            int outerR = camera.scaleToScreen(r.getOuterRadius());
+            int innerR = camera.scaleToScreen(r.getInnerRadius());
+            
+            // Draw outer curb
+            bufferGraphics.setColor(curbColor);
+            bufferGraphics.fillOval(cx - outerR - 2, cy - outerR - 2, (outerR + 2) * 2, (outerR + 2) * 2);
+            
+            // Draw road surface (ring)
+            bufferGraphics.setColor(roadColor);
+            bufferGraphics.fillOval(cx - outerR, cy - outerR, outerR * 2, outerR * 2);
+            
+            // Draw center island curb
+            bufferGraphics.setColor(curbColor);
+            bufferGraphics.fillOval(cx - innerR - 1, cy - innerR - 1, (innerR + 1) * 2, (innerR + 1) * 2);
+            
+            // Draw center island (green)
+            bufferGraphics.setColor(islandColor);
+            bufferGraphics.fillOval(cx - innerR, cy - innerR, innerR * 2, innerR * 2);
+            
+            // Island center decoration
+            if (innerR > 4) {
+                bufferGraphics.setColor(islandBorder);
+                bufferGraphics.fillOval(cx - innerR/2, cy - innerR/2, innerR, innerR);
+            }
+            
+            // Draw dashed lane circle
+            if (outerR > 8) {
+                int midR = (outerR + innerR) / 2;
+                bufferGraphics.setColor(roadLineColor);
+                int numDashes = 16;
+                for (int i = 0; i < numDashes; i += 2) {
+                    double angle1 = (2 * Math.PI * i) / numDashes;
+                    double angle2 = (2 * Math.PI * (i + 1)) / numDashes;
+                    int x1 = cx + (int)(Math.cos(angle1) * midR);
+                    int y1 = cy + (int)(Math.sin(angle1) * midR);
+                    int x2 = cx + (int)(Math.cos(angle2) * midR);
+                    int y2 = cy + (int)(Math.sin(angle2) * midR);
+                    bufferGraphics.drawLine(x1, y1, x2, y2);
+                }
+            }
+            
+            // Draw yield arrows at entries
+            if (outerR > 6) {
+                bufferGraphics.setColor(roadLineColor);
+                for (double angle : r.getExitAngles()) {
+                    int arrowX = cx + (int)(Math.cos(angle) * (outerR - 3));
+                    int arrowY = cy + (int)(Math.sin(angle) * (outerR - 3));
+                    bufferGraphics.fillRect(arrowX - 1, arrowY - 1, 2, 2);
+                }
             }
         }
     }
@@ -382,74 +558,219 @@ public class Renderer {
      */
     private void drawBuildings(CityWorld world, double[] bounds) {
         for (Building building : world.getBuildings()) {
-            // Culling
-            if (building.getX() + building.getWidth() < bounds[0] || 
-                building.getX() > bounds[2] ||
-                building.getY() + building.getHeight() < bounds[1] || 
-                building.getY() > bounds[3]) {
+            // Culling - handle circular buildings differently
+            double cullX = building.getShape() == Building.BuildingShape.CIRCLE ? 
+                           building.getX() - building.getWidth()/2 : building.getX();
+            double cullY = building.getShape() == Building.BuildingShape.CIRCLE ? 
+                           building.getY() - building.getHeight()/2 : building.getY();
+            
+            if (cullX + building.getWidth() < bounds[0] || cullX > bounds[2] ||
+                cullY + building.getHeight() < bounds[1] || cullY > bounds[3]) {
                 continue;
             }
             
-            int sx = camera.worldToScreenX(building.getX());
-            int sy = camera.worldToScreenY(building.getY());
-            int sw = camera.scaleToScreen(building.getWidth());
-            int sh = camera.scaleToScreen(building.getHeight());
-            
-            // Building shadow (offset based on building height)
-            int shadowOffset = Math.max(2, building.getFloors() / 3);
-            bufferGraphics.setColor(new Color(0, 0, 0, 100));
-            bufferGraphics.fillRect(sx + shadowOffset, sy + shadowOffset, sw, sh);
-            
-            // Main building color
             int colorIdx = building.getColorIndex() % GameConstants.COLOR_PALETTE.length;
             Color buildingColor = new Color(GameConstants.COLOR_PALETTE[colorIdx]);
-            bufferGraphics.setColor(buildingColor);
-            bufferGraphics.fillRect(sx, sy, sw, sh);
+            int shadowOffset = Math.max(2, building.getFloors() / 3);
             
-            // Building outline (thicker for taller buildings)
-            bufferGraphics.setColor(buildingColor.darker().darker());
-            bufferGraphics.drawRect(sx, sy, sw - 1, sh - 1);
-            if (building.getFloors() > 8) {
-                bufferGraphics.drawRect(sx + 1, sy + 1, sw - 3, sh - 3);
+            // Draw based on shape
+            switch (building.getShape()) {
+                case CIRCLE:
+                    drawCircularBuilding(building, buildingColor, shadowOffset);
+                    break;
+                case OCTAGON:
+                    drawOctagonBuilding(building, buildingColor, shadowOffset);
+                    break;
+                default:
+                    drawRectangularBuilding(building, buildingColor, shadowOffset);
+                    break;
             }
+        }
+    }
+    
+    private void drawRectangularBuilding(Building building, Color buildingColor, int shadowOffset) {
+        int sx = camera.worldToScreenX(building.getX());
+        int sy = camera.worldToScreenY(building.getY());
+        int sw = camera.scaleToScreen(building.getWidth());
+        int sh = camera.scaleToScreen(building.getHeight());
+        
+        // Shadow
+        bufferGraphics.setColor(new Color(0, 0, 0, 100));
+        bufferGraphics.fillRect(sx + shadowOffset, sy + shadowOffset, sw, sh);
+        
+        // Main building
+        bufferGraphics.setColor(buildingColor);
+        bufferGraphics.fillRect(sx, sy, sw, sh);
+        
+        // Outline
+        bufferGraphics.setColor(buildingColor.darker().darker());
+        bufferGraphics.drawRect(sx, sy, sw - 1, sh - 1);
+        if (building.getFloors() > 8) {
+            bufferGraphics.drawRect(sx + 1, sy + 1, sw - 3, sh - 3);
+        }
+        
+        // Roof detail for tall buildings
+        if (building.getFloors() > 10 && sw > 12 && sh > 12) {
+            bufferGraphics.setColor(buildingColor.darker());
+            int roofMargin = sw / 5;
+            bufferGraphics.fillRect(sx + roofMargin, sy + roofMargin, 
+                                   sw - roofMargin * 2, sh - roofMargin * 2);
+        }
+        
+        // Windows
+        drawBuildingWindows(building, sx, sy, sw, sh);
+        
+        // AC unit or antenna on some tall buildings
+        if (building.getFloors() > 12 && sw > 10) {
+            bufferGraphics.setColor(new Color(0x555555));
+            bufferGraphics.fillRect(sx + sw/2 - 1, sy + 2, 2, 3);
+        }
+    }
+    
+    private void drawCircularBuilding(Building building, Color buildingColor, int shadowOffset) {
+        // For circular buildings, x,y is the center
+        int cx = camera.worldToScreenX(building.getX());
+        int cy = camera.worldToScreenY(building.getY());
+        int radius = camera.scaleToScreen(building.getRadius());
+        
+        // Shadow
+        bufferGraphics.setColor(new Color(0, 0, 0, 100));
+        bufferGraphics.fillOval(cx - radius + shadowOffset, cy - radius + shadowOffset, radius * 2, radius * 2);
+        
+        // Main building
+        bufferGraphics.setColor(buildingColor);
+        bufferGraphics.fillOval(cx - radius, cy - radius, radius * 2, radius * 2);
+        
+        // Outline
+        bufferGraphics.setColor(buildingColor.darker().darker());
+        bufferGraphics.drawOval(cx - radius, cy - radius, radius * 2, radius * 2);
+        if (building.getFloors() > 8 && radius > 4) {
+            bufferGraphics.drawOval(cx - radius + 1, cy - radius + 1, radius * 2 - 2, radius * 2 - 2);
+        }
+        
+        // Inner roof circle for tall buildings
+        if (building.getFloors() > 10 && radius > 8) {
+            bufferGraphics.setColor(buildingColor.darker());
+            int innerR = radius * 2 / 3;
+            bufferGraphics.fillOval(cx - innerR, cy - innerR, innerR * 2, innerR * 2);
+        }
+        
+        // Circular window pattern
+        if (radius > 6) {
+            int colorIdx = building.getColorIndex() % GameConstants.COLOR_PALETTE.length;
+            Color windowColor = (colorIdx % 2 == 0) ? new Color(0xFFE66D) : new Color(0x87CEEB);
+            Color windowOff = new Color(0x1A1A2E);
+            int buildingSeed = (int)(building.getX() * 7 + building.getY() * 13);
             
-            // Roof detail for tall buildings
-            if (building.getFloors() > 10 && sw > 12 && sh > 12) {
-                bufferGraphics.setColor(buildingColor.darker());
-                int roofMargin = sw / 5;
-                bufferGraphics.fillRect(sx + roofMargin, sy + roofMargin, 
-                                       sw - roofMargin * 2, sh - roofMargin * 2);
-            }
-            
-            // Windows (if building is large enough on screen)
-            if (sw > 6 && sh > 6) {
-                // Window color varies by building
-                Color windowColor = (colorIdx % 2 == 0) ? 
-                    new Color(0xFFE66D) : new Color(0x87CEEB); // Yellow or blue windows
-                Color windowOff = new Color(0x1A1A2E);
-                
-                int windowSpacing = Math.max(4, sw / 5);
-                int windowSize = Math.max(2, windowSpacing / 2);
-                
-                // Use world-space grid to prevent flickering when camera moves
-                int windowIdx = 0;
-                int buildingSeed = (int)(building.getX() * 7 + building.getY() * 13);
-                
-                for (int wx = sx + 3; wx < sx + sw - windowSize - 1; wx += windowSpacing) {
-                    for (int wy = sy + 3; wy < sy + sh - windowSize - 1; wy += windowSpacing) {
-                        // Deterministic pattern based on building position and window index
-                        boolean isLit = ((buildingSeed + windowIdx) % 3) != 0;
-                        bufferGraphics.setColor(isLit ? windowColor : windowOff);
-                        bufferGraphics.fillRect(wx, wy, windowSize, windowSize);
-                        windowIdx++;
-                    }
+            int numRings = Math.max(1, radius / 6);
+            int windowIdx = 0;
+            for (int ring = 1; ring <= numRings; ring++) {
+                int ringRadius = (radius * ring) / (numRings + 1);
+                int windowsInRing = Math.max(4, ring * 4);
+                for (int w = 0; w < windowsInRing; w++) {
+                    double angle = (2 * Math.PI * w) / windowsInRing;
+                    int wx = cx + (int)(Math.cos(angle) * ringRadius);
+                    int wy = cy + (int)(Math.sin(angle) * ringRadius);
+                    boolean isLit = ((buildingSeed + windowIdx) % 3) != 0;
+                    bufferGraphics.setColor(isLit ? windowColor : windowOff);
+                    bufferGraphics.fillRect(wx - 1, wy - 1, 2, 2);
+                    windowIdx++;
                 }
             }
+        }
+    }
+    
+    private void drawOctagonBuilding(Building building, Color buildingColor, int shadowOffset) {
+        int sx = camera.worldToScreenX(building.getX());
+        int sy = camera.worldToScreenY(building.getY());
+        int sw = camera.scaleToScreen(building.getWidth());
+        int sh = camera.scaleToScreen(building.getHeight());
+        
+        int cx = sx + sw / 2;
+        int cy = sy + sh / 2;
+        int radius = Math.min(sw, sh) / 2;
+        
+        // Create octagon polygon
+        int[] xPoints = new int[8];
+        int[] yPoints = new int[8];
+        for (int i = 0; i < 8; i++) {
+            double angle = building.getRotation() + (Math.PI * 2 * i) / 8 - Math.PI / 8;
+            xPoints[i] = cx + (int)(Math.cos(angle) * radius);
+            yPoints[i] = cy + (int)(Math.sin(angle) * radius);
+        }
+        
+        // Shadow
+        int[] shadowX = new int[8];
+        int[] shadowY = new int[8];
+        for (int i = 0; i < 8; i++) {
+            shadowX[i] = xPoints[i] + shadowOffset;
+            shadowY[i] = yPoints[i] + shadowOffset;
+        }
+        bufferGraphics.setColor(new Color(0, 0, 0, 100));
+        bufferGraphics.fillPolygon(shadowX, shadowY, 8);
+        
+        // Main building
+        bufferGraphics.setColor(buildingColor);
+        bufferGraphics.fillPolygon(xPoints, yPoints, 8);
+        
+        // Outline
+        bufferGraphics.setColor(buildingColor.darker().darker());
+        bufferGraphics.drawPolygon(xPoints, yPoints, 8);
+        
+        // Inner octagon for tall buildings
+        if (building.getFloors() > 10 && radius > 8) {
+            int innerR = radius * 2 / 3;
+            int[] innerX = new int[8];
+            int[] innerY = new int[8];
+            for (int i = 0; i < 8; i++) {
+                double angle = building.getRotation() + (Math.PI * 2 * i) / 8 - Math.PI / 8;
+                innerX[i] = cx + (int)(Math.cos(angle) * innerR);
+                innerY[i] = cy + (int)(Math.sin(angle) * innerR);
+            }
+            bufferGraphics.setColor(buildingColor.darker());
+            bufferGraphics.fillPolygon(innerX, innerY, 8);
+        }
+        
+        // Windows along edges
+        if (radius > 6) {
+            int colorIdx = building.getColorIndex() % GameConstants.COLOR_PALETTE.length;
+            Color windowColor = (colorIdx % 2 == 0) ? new Color(0xFFE66D) : new Color(0x87CEEB);
+            Color windowOff = new Color(0x1A1A2E);
+            int buildingSeed = (int)(building.getX() * 7 + building.getY() * 13);
             
-            // AC unit or antenna on some tall buildings
-            if (building.getFloors() > 12 && sw > 10) {
-                bufferGraphics.setColor(new Color(0x555555));
-                bufferGraphics.fillRect(sx + sw/2 - 1, sy + 2, 2, 3);
+            int windowIdx = 0;
+            for (int i = 0; i < 8; i++) {
+                // Window on each face
+                double angle = building.getRotation() + (Math.PI * 2 * i) / 8;
+                int wx = cx + (int)(Math.cos(angle) * (radius * 0.6));
+                int wy = cy + (int)(Math.sin(angle) * (radius * 0.6));
+                boolean isLit = ((buildingSeed + windowIdx) % 3) != 0;
+                bufferGraphics.setColor(isLit ? windowColor : windowOff);
+                bufferGraphics.fillRect(wx - 1, wy - 1, 2, 2);
+                windowIdx++;
+            }
+        }
+    }
+    
+    private void drawBuildingWindows(Building building, int sx, int sy, int sw, int sh) {
+        if (sw <= 6 || sh <= 6) return;
+        
+        int colorIdx = building.getColorIndex() % GameConstants.COLOR_PALETTE.length;
+        Color windowColor = (colorIdx % 2 == 0) ? new Color(0xFFE66D) : new Color(0x87CEEB);
+        Color windowOff = new Color(0x1A1A2E);
+        
+        int windowSpacing = Math.max(4, sw / 5);
+        int windowSize = Math.max(2, windowSpacing / 2);
+        
+        int windowIdx = 0;
+        int buildingSeed = (int)(building.getX() * 7 + building.getY() * 13);
+        
+        for (int wx = sx + 3; wx < sx + sw - windowSize - 1; wx += windowSpacing) {
+            for (int wy = sy + 3; wy < sy + sh - windowSize - 1; wy += windowSpacing) {
+                boolean isLit = ((buildingSeed + windowIdx) % 3) != 0;
+                bufferGraphics.setColor(isLit ? windowColor : windowOff);
+                bufferGraphics.fillRect(wx, wy, windowSize, windowSize);
+                windowIdx++;
             }
         }
     }
